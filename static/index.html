@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Certificate Discovery Platform</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>🔎 Certificate Discovery Platform</h1>
+    <p class="subtitle">
+      Descoberta e inventário de certificados TLS via Certificate Transparency + handshake ao vivo.
+    </p>
+  </header>
+
+  <main>
+    <section class="card">
+      <form id="scan-form">
+        <label for="domain">Domínio autorizado</label>
+        <input
+          id="domain"
+          name="domain"
+          type="text"
+          placeholder="exemplo.com.br"
+          autocomplete="off"
+          required
+        />
+
+        <details id="manual-hosts-details">
+          <summary>Avançado: colar subdomínios manualmente (opcional)</summary>
+          <textarea
+            id="manual-hosts"
+            name="manual_hosts"
+            rows="3"
+            placeholder="um host por linha, ex: app.exemplo.com.br"
+          ></textarea>
+          <p class="hint">
+            Use isso se o serviço de Certificate Transparency estiver instável ou
+            se você já sabe quais hosts quer verificar.
+          </p>
+        </details>
+
+        <label class="consent">
+          <input id="consent" name="consent" type="checkbox" required />
+          Confirmo que possuo autorização para testar este domínio.
+        </label>
+
+        <button id="submit-btn" type="submit">Escanear</button>
+      </form>
+
+      <p class="disclaimer">
+        ⚠️ Use apenas em domínios que você possui ou está autorizado a testar.
+        A ferramenta só consulta dados públicos (Certificate Transparency) e
+        realiza handshakes TLS padrão, como qualquer navegador faz.
+      </p>
+    </section>
+
+    <section id="progress-card" class="card hidden">
+      <div class="progress-header">
+        <span id="progress-message">Iniciando...</span>
+        <span id="progress-counts"></span>
+      </div>
+      <div class="progress-bar">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+    </section>
+
+    <section id="results-card" class="card hidden">
+      <div class="results-header">
+        <h2>Inventário</h2>
+        <div class="results-actions">
+          <label>
+            Filtrar:
+            <select id="filter-status">
+              <option value="all">Todos</option>
+              <option value="queue">Fila de renovação (urgentes)</option>
+              <option value="expired">Expirados</option>
+              <option value="critical">Críticos (&lt; 7 dias)</option>
+              <option value="warning">Atenção (&lt; 30 dias)</option>
+              <option value="ok">OK</option>
+              <option value="ct_only">Só CT log / não confirmado</option>
+            </select>
+          </label>
+          <a id="export-csv" class="button-link">Exportar CSV</a>
+          <a id="export-json" class="button-link">Exportar JSON</a>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table id="results-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Host</th>
+              <th>Emissor</th>
+              <th>Expira em</th>
+              <th>Dias restantes</th>
+              <th>Origem</th>
+              <th>Observação</th>
+            </tr>
+          </thead>
+          <tbody id="results-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="error-card" class="card hidden error">
+      <p id="error-message"></p>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      Projeto de portfólio, open source (MIT) — desenvolvido com auxílio de IA
+      (Claude). Pode conter bugs pontuais ou casos não cobertos; revise antes
+      de usar em produção.
+    </p>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

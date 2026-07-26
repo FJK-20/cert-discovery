@@ -1,0 +1,10 @@
+services:
+  cert-discovery:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - CERTDISC_MAX_HOSTS=400
+      - CERTDISC_MAX_CONCURRENCY=30
+      - CERTDISC_RATE_LIMIT_RPM=6
+    restart: unless-stopped
