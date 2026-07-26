@@ -1,8 +1,6 @@
 # Certificate Discovery Platform
 
-![CI](https://github.com/SEU_USUARIO/cert-discovery/actions/workflows/ci.yml/badge.svg)
-
-> Atualize `SEU_USUARIO` no badge acima com seu usuário do GitHub depois de publicar o repositório.
+![CI](https://github.com/FJK-20/cert-discovery/actions/workflows/ci.yml/badge.svg)
 
 Plataforma open source para descoberta e inventário de certificados TLS.
 
@@ -77,7 +75,7 @@ autorização antes de iniciar um scan.
 Pré-requisito: [Docker](https://docs.docker.com/get-docker/) com Docker Compose.
 
 ```bash
-git clone https://github.com/SEU_USUARIO/cert-discovery.git
+git clone https://github.com/FJK-20/cert-discovery.git
 cd cert-discovery
 docker compose up --build
 ```
@@ -92,7 +90,7 @@ certificados — em 3.12 ou anterior, a aplicação roda normalmente mas captura
 só o certificado-folha, sem a cadeia).
 
 ```bash
-git clone https://github.com/SEU_USUARIO/cert-discovery.git
+git clone https://github.com/FJK-20/cert-discovery.git
 cd cert-discovery
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
