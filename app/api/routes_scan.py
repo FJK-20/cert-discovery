@@ -3,17 +3,20 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.auth.dependencies import require_session
 from app.core.config import settings
 from app.core.ratelimit import SlidingWindowRateLimiter
 from app.domain.models import JobState, ScanJob
 from app.export.exporters import to_csv, to_json
 from app.jobs.manager import job_manager
 
-router = APIRouter(prefix="/api/scan")
+# `dependencies=[Depends(require_session)]` protege TODAS as rotas deste
+# router — sem sessão autenticada (login + MFA), a API de scan retorna 401.
+router = APIRouter(prefix="/api/scan", dependencies=[Depends(require_session)])
 _rate_limiter = SlidingWindowRateLimiter(max_requests=settings.rate_limit_requests_per_minute)
 
 _TERMINAL_STATES = {JobState.DONE, JobState.PARTIAL_TIMEOUT, JobState.FAILED}

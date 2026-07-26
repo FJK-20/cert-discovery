@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Certificate Discovery Platform — Acesso</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>🔎 Certificate Discovery Platform</h1>
+    <p class="subtitle">Acesso administrativo</p>
+  </header>
+
+  <main class="auth-main">
+    <section id="setup-register" class="card hidden">
+      <h2>Criar conta de administrador</h2>
+      <p class="hint">
+        Nenhum admin cadastrado ainda. Crie o usuário e a senha — na próxima
+        etapa você vai configurar a autenticação em dois fatores (MFA), que é
+        obrigatória para concluir o cadastro.
+      </p>
+      <form id="register-form">
+        <label for="register-username">Usuário</label>
+        <input id="register-username" type="text" autocomplete="username" required />
+
+        <label for="register-password">Senha (mínimo 8 caracteres)</label>
+        <input id="register-password" type="password" autocomplete="new-password" minlength="8" required />
+
+        <label for="register-password-confirm">Confirmar senha</label>
+        <input id="register-password-confirm" type="password" autocomplete="new-password" minlength="8" required />
+
+        <button type="submit">Continuar para configurar o MFA</button>
+      </form>
+    </section>
+
+    <section id="mfa-enroll" class="card hidden">
+      <h2>Configurar autenticação em dois fatores</h2>
+      <p class="hint">
+        Escaneie o QR code com um app autenticador (Google Authenticator,
+        Authy, 1Password, etc.) ou digite a chave manualmente. Depois,
+        confirme com o código de 6 dígitos gerado pelo app. Isso é
+        obrigatório — não é possível concluir o cadastro sem confirmar o MFA.
+      </p>
+      <img id="mfa-qr" alt="QR code para configurar o MFA" class="qr-code" />
+      <p class="hint">Chave manual: <code id="mfa-secret"></code></p>
+      <form id="mfa-enroll-form">
+        <label for="mfa-enroll-code">Código de 6 dígitos</label>
+        <input
+          id="mfa-enroll-code"
+          type="text"
+          inputmode="numeric"
+          pattern="[0-9]{6}"
+          maxlength="6"
+          autocomplete="one-time-code"
+          required
+        />
+        <button type="submit">Confirmar e concluir cadastro</button>
+      </form>
+    </section>
+
+    <section id="login-password" class="card hidden">
+      <h2>Login</h2>
+      <form id="login-form">
+        <label for="login-username">Usuário</label>
+        <input id="login-username" type="text" autocomplete="username" required />
+
+        <label for="login-password">Senha</label>
+        <input id="login-password" type="password" autocomplete="current-password" required />
+
+        <button type="submit">Continuar</button>
+      </form>
+    </section>
+
+    <section id="login-mfa" class="card hidden">
+      <h2>Código de verificação</h2>
+      <p class="hint">Digite o código de 6 dígitos do seu app autenticador.</p>
+      <form id="login-mfa-form">
+        <label for="login-mfa-code">Código de 6 dígitos</label>
+        <input
+          id="login-mfa-code"
+          type="text"
+          inputmode="numeric"
+          pattern="[0-9]{6}"
+          maxlength="6"
+          autocomplete="one-time-code"
+          required
+        />
+        <button type="submit">Entrar</button>
+      </form>
+    </section>
+
+    <section id="auth-error" class="card error hidden">
+      <p id="auth-error-message"></p>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      Projeto de portfólio, open source (MIT) — desenvolvido com auxílio de IA
+      (Claude). Pode conter bugs pontuais ou casos não cobertos; revise antes
+      de usar em produção.
+    </p>
+  </footer>
+
+  <script src="/static/auth.js"></script>
+</body>
+</html>

@@ -7,4 +7,9 @@ services:
       - CERTDISC_MAX_HOSTS=400
       - CERTDISC_MAX_CONCURRENCY=30
       - CERTDISC_RATE_LIMIT_RPM=6
+      - CERTDISC_DATA_DIR=/app/data
+    volumes:
+      # Persiste o cadastro do admin (usuário, hash de senha, segredo TOTP)
+      # entre reinícios do container.
+      - ./data:/app/data
     restart: unless-stopped

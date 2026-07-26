@@ -6,3 +6,6 @@ venv/
 .ruff_cache/
 *.egg-info/
 .env
+
+# credenciais do admin (usuário/hash de senha/segredo TOTP) — nunca versionar
+/data/

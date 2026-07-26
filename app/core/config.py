@@ -13,6 +13,13 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass(frozen=True)
 class Settings:
     max_hosts_per_scan: int = _int_env("CERTDISC_MAX_HOSTS", 400)
@@ -27,6 +34,15 @@ class Settings:
     job_ttl_seconds: float = 15 * 60
 
     rate_limit_requests_per_minute: int = _int_env("CERTDISC_RATE_LIMIT_RPM", 6)
+
+    # Autenticação / MFA
+    data_dir: str = os.environ.get("CERTDISC_DATA_DIR", "data")
+    session_ttl_seconds: float = 12 * 3600
+    pending_login_ttl_seconds: float = 5 * 60
+    cookie_secure: bool = _bool_env("CERTDISC_COOKIE_SECURE", False)
+    totp_issuer: str = "Certificate Discovery Platform"
+    auth_rate_limit_requests: int = _int_env("CERTDISC_AUTH_RATE_LIMIT", 8)
+    auth_rate_limit_window_seconds: float = 300.0
 
 
 settings = Settings()

@@ -81,7 +81,8 @@ docker compose up --build
 ```
 
 Abra `http://localhost:8000` no navegador. Pronto — nenhuma instalação de
-Python, pip ou dependências no seu sistema.
+Python, pip ou dependências no seu sistema. No primeiro acesso, a aplicação
+pede para cadastrar o admin (veja [Acesso e autenticação](#acesso-e-autenticação)).
 
 ### Opção 2 — Python direto (sem Docker)
 
@@ -100,6 +101,31 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 
 Abra `http://localhost:8000`.
 
+## Acesso e autenticação
+
+A aplicação exige uma conta de administrador com **MFA (TOTP) obrigatório**
+— não existe modo "sem login" nem opção de pular o MFA.
+
+1. **Primeiro acesso**: nenhum admin cadastrado ainda → tela de cadastro
+   (usuário + senha, mínimo 8 caracteres).
+2. **Configuração do MFA**: logo em seguida, um QR code é exibido para
+   escanear com um app autenticador (Google Authenticator, Authy, 1Password,
+   etc. — qualquer app compatível com TOTP/RFC 6238). O cadastro só é
+   considerado concluído depois de confirmar um código válido de 6 dígitos;
+   não há como pular essa etapa.
+3. **Acessos seguintes**: login em duas etapas — usuário/senha e, depois,
+   o código do autenticador. A sessão fica em um cookie `httpOnly`.
+4. Toda a API de scan (`/api/scan/*`) exige sessão autenticada — sem login
+   válido, retorna 401.
+
+A conta (usuário, hash da senha, segredo TOTP) fica em `data/admin.json`
+(permissão `0600`), persistida via volume Docker entre reinícios — só os
+*jobs* de scan em si são efêmeros (ver [Limitações conhecidas](#limitações-conhecidas)).
+
+**Perdeu acesso ao MFA?** Pare o serviço, apague `data/admin.json` e refaça
+o cadastro. Não há fluxo de recuperação de conta na v1 (single-admin, MVP de
+portfólio) — é um trade-off deliberado, não um recurso faltando por descuido.
+
 ## Variáveis de ambiente
 
 | Variável                     | Padrão | Descrição                                            |
@@ -107,6 +133,9 @@ Abra `http://localhost:8000`.
 | `CERTDISC_MAX_HOSTS`          | `400`  | Máximo de hosts investigados por scan                 |
 | `CERTDISC_MAX_CONCURRENCY`    | `30`   | Handshakes TLS simultâneos                            |
 | `CERTDISC_RATE_LIMIT_RPM`     | `6`    | Limite de scans por minuto, por IP do requisitante    |
+| `CERTDISC_DATA_DIR`           | `data` | Diretório onde `admin.json` é persistido              |
+| `CERTDISC_COOKIE_SECURE`      | `false`| Marca o cookie de sessão como `Secure` (ative atrás de HTTPS) |
+| `CERTDISC_AUTH_RATE_LIMIT`    | `8`    | Limite de tentativas de login/MFA a cada 5 min, por IP |
 
 ## Segurança
 
@@ -127,12 +156,27 @@ proteção deliberada contra SSRF:
 Veja `app/core/security.py` e `tests/test_security.py` para a lista completa
 de ranges bloqueados e os casos de teste.
 
+Sobre a autenticação:
+
+- senha com hash **scrypt** (`hashlib.scrypt` da stdlib, sem dependência
+  extra), nunca armazenada em texto puro;
+- **MFA (TOTP/RFC 6238)** implementado com a stdlib (`hmac`/`hashlib`),
+  obrigatório desde o cadastro — não existe conta sem MFA configurado;
+- login em duas etapas (senha, depois código) via tokens de curta duração
+  em memória — a senha nunca autentica sozinha;
+- rate limiting dedicado nas rotas de login/MFA (`CERTDISC_AUTH_RATE_LIMIT`),
+  já que um código de 6 dígitos é força-bruteável sem esse limite;
+- cookie de sessão `httpOnly` + `SameSite=Lax`; sem CORS liberado para
+  outras origens (mitiga CSRF sem precisar de token dedicado).
+
 ## Limitações conhecidas
 
-- **Sem persistência**: os jobs de scan vivem em memória de um único
-  processo (por isso `--workers 1` é obrigatório). Reiniciar o serviço
-  descarta scans em andamento — é uma escolha deliberada de escopo, não uma
-  limitação a corrigir.
+- **Jobs de scan são efêmeros**: vivem em memória de um único processo (por
+  isso `--workers 1` é obrigatório). Reiniciar o serviço descarta scans em
+  andamento — escolha deliberada de escopo, não uma limitação a corrigir. A
+  conta de admin **não** é afetada por isso (fica persistida em disco).
+- **Single-admin**: não é um sistema multiusuário — está fora do escopo
+  deste MVP.
 - **Dependência do crt.sh**: é um serviço público mantido por terceiros,
   conhecido por ser lento/instável sob carga. A aplicação já lida com isso
   (timeout, retry com backoff, detecção de resposta HTML de erro), mas se o

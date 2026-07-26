@@ -3,3 +3,4 @@ uvicorn[standard]>=0.32,<1.0
 httpx>=0.27,<1.0
 cryptography>=43,<44
 dnspython>=2.6,<3.0
+qrcode>=7.4,<8.0

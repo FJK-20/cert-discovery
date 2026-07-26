@@ -135,6 +135,10 @@ form.addEventListener("submit", async (event) => {
       body: JSON.stringify({ domain, manual_hosts: manualHosts, consent }),
     });
 
+    if (response.status === 401) {
+      window.location.href = "/";
+      return;
+    }
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
       throw new Error(errorBody.detail || `Erro ${response.status}`);
@@ -166,3 +170,8 @@ form.addEventListener("submit", async (event) => {
 });
 
 filterStatus.addEventListener("change", renderTable);
+
+document.getElementById("logout-btn").addEventListener("click", async () => {
+  await fetch("/api/auth/logout", { method: "POST" });
+  window.location.href = "/";
+});
