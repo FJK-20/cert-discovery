@@ -15,6 +15,11 @@ DNS e handshake TLS e consolida os certificados encontrados em um inventário.
 > de qualquer uso além de estudo/demonstração, e sinta-se à vontade para
 > abrir uma issue se encontrar algo estranho.
 
+<p align="center">
+  <img src="docs/screenshots/app-empty.png" alt="Tela inicial da Certificate Discovery Platform" width="49%" />
+  <img src="docs/screenshots/app-results.png" alt="Inventário de certificados com cards de resumo e tabela de resultados" width="49%" />
+</p>
+
 ## Problema
 
 Organizações frequentemente possuem certificados distribuídos entre

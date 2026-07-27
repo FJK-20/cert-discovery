@@ -53,6 +53,17 @@ function badgeFor(status) {
   return `<span class="badge badge-${status}">${label}</span>`;
 }
 
+function renderSummaryStats() {
+  // Cada card já declara seu status via data-filter (mesmo atributo usado
+  // pelo listener de clique abaixo) — evita manter uma segunda lista de
+  // status hardcoded em paralelo à do HTML.
+  document.querySelectorAll("#summary-stats .stat-card").forEach((card) => {
+    const status = card.dataset.filter;
+    const count = currentRecords.filter((record) => record.status === status).length;
+    card.querySelector(".stat-count").textContent = count;
+  });
+}
+
 function renderTable() {
   const filter = filterStatus.value;
   const queueStatuses = new Set(["expired", "critical", "warning"]);
@@ -112,6 +123,7 @@ function finish(snapshot, jobId) {
   resultsCard.classList.remove("hidden");
   exportCsv.href = `/api/scan/${jobId}/export.csv`;
   exportJson.href = `/api/scan/${jobId}/export.json`;
+  renderSummaryStats();
   renderTable();
 }
 
@@ -170,6 +182,13 @@ form.addEventListener("submit", async (event) => {
 });
 
 filterStatus.addEventListener("change", renderTable);
+
+document.getElementById("summary-stats").addEventListener("click", (event) => {
+  const card = event.target.closest(".stat-card");
+  if (!card) return;
+  filterStatus.value = card.dataset.filter;
+  renderTable();
+});
 
 document.getElementById("logout-btn").addEventListener("click", async () => {
   await fetch("/api/auth/logout", { method: "POST" });

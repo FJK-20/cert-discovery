@@ -70,6 +70,25 @@
     </section>
 
     <section id="results-card" class="card hidden">
+      <div class="summary-stats" id="summary-stats">
+        <button type="button" class="stat-card stat-expired" data-filter="expired">
+          <span class="stat-count">0</span>
+          <span class="stat-label">Expirados</span>
+        </button>
+        <button type="button" class="stat-card stat-critical" data-filter="critical">
+          <span class="stat-count">0</span>
+          <span class="stat-label">Críticos (&lt; 7d)</span>
+        </button>
+        <button type="button" class="stat-card stat-warning" data-filter="warning">
+          <span class="stat-count">0</span>
+          <span class="stat-label">Atenção (&lt; 30d)</span>
+        </button>
+        <button type="button" class="stat-card stat-ok" data-filter="ok">
+          <span class="stat-count">0</span>
+          <span class="stat-label">OK</span>
+        </button>
+      </div>
+
       <div class="results-header">
         <h2>Inventário</h2>
         <div class="results-actions">

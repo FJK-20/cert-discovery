@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 
 
@@ -59,7 +59,9 @@ class ScanJob:
     domain: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     state: JobState = JobState.PENDING
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    # datetime.utcnow() é naive e faz `.timestamp()` assumir fuso local — em
+    # servidor fora de UTC isso desalinha o cálculo de TTL em _evict_expired.
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     progress_message: str = ""
     hosts_total: int = 0
     hosts_done: int = 0
