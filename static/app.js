@@ -192,5 +192,14 @@ document.getElementById("summary-stats").addEventListener("click", (event) => {
 
 document.getElementById("logout-btn").addEventListener("click", async () => {
   await fetch("/api/auth/logout", { method: "POST" });
+  // Mesma proteção usada em auth.js: confirma que o cookie já foi
+  // removido antes de navegar, para não recarregar como se ainda
+  // estivesse autenticado.
+  for (let attempt = 0; attempt < 15; attempt++) {
+    const response = await fetch("/api/auth/status");
+    const { state } = await response.json();
+    if (state !== "authenticated") break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
   window.location.href = "/";
 });

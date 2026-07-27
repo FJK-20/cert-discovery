@@ -46,6 +46,21 @@ function renderEnrollment(data) {
   showSection("mfaEnroll");
 }
 
+// Confirma que o cookie de sessão recém-emitido já é reconhecido pelo
+// servidor antes de navegar. Sem isso, em alguns navegadores o
+// window.location.href logo após o Set-Cookie corre com o commit do
+// cookie e a página recarrega como se ainda não estivesse autenticado —
+// travando na mesma tela até um F5 manual.
+async function goToApp() {
+  for (let attempt = 0; attempt < 15; attempt++) {
+    const response = await fetch("/api/auth/status");
+    const { state } = await response.json();
+    if (state === "authenticated") break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  window.location.href = "/";
+}
+
 async function withSubmitLock(form, action) {
   clearError();
   const button = form.querySelector("button[type=submit]");
@@ -104,7 +119,7 @@ document.getElementById("mfa-enroll-form").addEventListener("submit", (event) =>
   withSubmitLock(event.target, async () => {
     const code = document.getElementById("mfa-enroll-code").value.trim();
     await postJson("/api/auth/setup/verify-mfa", { code });
-    window.location.href = "/";
+    await goToApp();
   });
 });
 
@@ -124,7 +139,7 @@ document.getElementById("login-mfa-form").addEventListener("submit", (event) => 
   withSubmitLock(event.target, async () => {
     const code = document.getElementById("login-mfa-code").value.trim();
     await postJson("/api/auth/login/verify-mfa", { pending_token: pendingLoginToken, code });
-    window.location.href = "/";
+    await goToApp();
   });
 });
 
