@@ -1,21 +1,30 @@
 const sections = {
   register: document.getElementById("setup-register"),
   mfaEnroll: document.getElementById("mfa-enroll"),
-  loginPassword: document.getElementById("login-password"),
+  loginPassword: document.getElementById("login-password-section"),
   loginMfa: document.getElementById("login-mfa"),
-  error: document.getElementById("auth-error"),
 };
 
+const errorBanner = document.getElementById("auth-error-message");
 let pendingLoginToken = null;
 
 function showSection(name) {
   Object.values(sections).forEach((section) => section.classList.add("hidden"));
-  sections[name].classList.remove("hidden");
+  const section = sections[name];
+  section.classList.remove("hidden");
+  section.querySelector("input")?.focus();
 }
 
+// Erro aparece acima do card atual, sem esconder o formulário — o usuário
+// pode corrigir e tentar de novo sem perder o passo em que está (ex: não
+// perde a tela de MFA se digitar o código errado).
 function showError(message) {
-  document.getElementById("auth-error-message").textContent = message;
-  showSection("error");
+  errorBanner.textContent = message;
+  errorBanner.classList.remove("hidden");
+}
+
+function clearError() {
+  errorBanner.classList.add("hidden");
 }
 
 async function postJson(url, body) {
@@ -35,6 +44,19 @@ function renderEnrollment(data) {
   document.getElementById("mfa-qr").src = data.qr_data_uri;
   document.getElementById("mfa-secret").textContent = data.secret;
   showSection("mfaEnroll");
+}
+
+async function withSubmitLock(form, action) {
+  clearError();
+  const button = form.querySelector("button[type=submit]");
+  button.disabled = true;
+  try {
+    await action();
+  } catch (err) {
+    showError(err.message || "Algo deu errado. Tente novamente.");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function init() {
@@ -61,58 +83,49 @@ async function init() {
   }
 }
 
-document.getElementById("register-form").addEventListener("submit", async (event) => {
+document.getElementById("register-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  const username = document.getElementById("register-username").value.trim();
-  const password = document.getElementById("register-password").value;
-  const confirmPassword = document.getElementById("register-password-confirm").value;
+  withSubmitLock(event.target, async () => {
+    const username = document.getElementById("register-username").value.trim();
+    const password = document.getElementById("register-password").value;
+    const confirmPassword = document.getElementById("register-password-confirm").value;
 
-  if (password !== confirmPassword) {
-    showError("As senhas não coincidem.");
-    return;
-  }
+    if (password !== confirmPassword) {
+      throw new Error("As senhas não coincidem.");
+    }
 
-  try {
     const data = await postJson("/api/auth/setup", { username, password });
     renderEnrollment(data);
-  } catch (err) {
-    showError(err.message);
-  }
+  });
 });
 
-document.getElementById("mfa-enroll-form").addEventListener("submit", async (event) => {
+document.getElementById("mfa-enroll-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  const code = document.getElementById("mfa-enroll-code").value.trim();
-  try {
+  withSubmitLock(event.target, async () => {
+    const code = document.getElementById("mfa-enroll-code").value.trim();
     await postJson("/api/auth/setup/verify-mfa", { code });
     window.location.href = "/";
-  } catch (err) {
-    showError(err.message);
-  }
+  });
 });
 
-document.getElementById("login-form").addEventListener("submit", async (event) => {
+document.getElementById("login-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  const username = document.getElementById("login-username").value.trim();
-  const password = document.getElementById("login-password").value;
-  try {
+  withSubmitLock(event.target, async () => {
+    const username = document.getElementById("login-username").value.trim();
+    const password = document.getElementById("login-password").value;
     const data = await postJson("/api/auth/login", { username, password });
     pendingLoginToken = data.pending_token;
     showSection("loginMfa");
-  } catch (err) {
-    showError(err.message);
-  }
+  });
 });
 
-document.getElementById("login-mfa-form").addEventListener("submit", async (event) => {
+document.getElementById("login-mfa-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  const code = document.getElementById("login-mfa-code").value.trim();
-  try {
+  withSubmitLock(event.target, async () => {
+    const code = document.getElementById("login-mfa-code").value.trim();
     await postJson("/api/auth/login/verify-mfa", { pending_token: pendingLoginToken, code });
     window.location.href = "/";
-  } catch (err) {
-    showError(err.message);
-  }
+  });
 });
 
 init();

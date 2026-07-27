@@ -6,13 +6,15 @@
   <title>Certificate Discovery Platform — Acesso</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
-<body>
+<body class="auth-page">
   <header>
     <h1>🔎 Certificate Discovery Platform</h1>
     <p class="subtitle">Acesso administrativo</p>
   </header>
 
   <main class="auth-main">
+    <p id="auth-error-message" class="error-banner hidden"></p>
+
     <section id="setup-register" class="card hidden">
       <h2>Criar conta de administrador</h2>
       <p class="hint">
@@ -59,7 +61,7 @@
       </form>
     </section>
 
-    <section id="login-password" class="card hidden">
+    <section id="login-password-section" class="card hidden">
       <h2>Login</h2>
       <form id="login-form">
         <label for="login-username">Usuário</label>
@@ -88,10 +90,6 @@
         />
         <button type="submit">Entrar</button>
       </form>
-    </section>
-
-    <section id="auth-error" class="card error hidden">
-      <p id="auth-error-message"></p>
     </section>
   </main>
 

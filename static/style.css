@@ -76,7 +76,9 @@ form label {
   margin-bottom: 0.35rem;
 }
 
-form input[type="text"],
+/* :not([type="checkbox"]) em vez de listar tipos um a um — um input novo
+   (email, number, etc.) nunca mais escapa dessa regra por esquecimento. */
+form input:not([type="checkbox"]),
 form textarea {
   width: 100%;
   padding: 0.6rem 0.75rem;
@@ -245,8 +247,40 @@ footer {
   padding: 1rem 1.5rem 2.5rem;
 }
 
+/* Página de auth: card centralizado vertical e horizontalmente, com
+   profundidade extra pra não "flutuar" perdido num fundo escuro imenso. */
+.auth-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
 .auth-main {
+  flex: 1;
+  width: 100%;
   max-width: 480px;
+  justify-content: center;
+}
+
+.auth-main .card {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+}
+
+.auth-main form button[type="submit"] {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+/* Banner de erro fica acima do card ativo em vez de substituí-lo — o
+   formulário nunca some, então dá pra corrigir e tentar de novo na hora. */
+.error-banner {
+  border: 1px solid var(--expired);
+  color: var(--expired);
+  background: var(--card-bg);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+  margin: 0 0 1rem;
 }
 
 .qr-code {
