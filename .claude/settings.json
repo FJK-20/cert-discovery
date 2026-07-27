@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.venv/**)",
+      "Edit(./.venv/**)",
+      "Grep(./.venv/**)",
+      "Glob(./.venv/**)",
+      "Read(./data/**)",
+      "Edit(./data/**)",
+      "Grep(./data/**)",
+      "Glob(./data/**)",
+      "Read(./.git/**)",
+      "Edit(./.git/**)",
+      "Grep(./.git/**)",
+      "Read(./.pytest_cache/**)",
+      "Read(./.ruff_cache/**)",
+      "Read(./node_modules/**)",
+      "Edit(./node_modules/**)",
+      "Read(**/__pycache__/**)",
+      "Read(**/*.pyc)"
+    ]
+  }
+}
