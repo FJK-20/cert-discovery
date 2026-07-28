@@ -48,9 +48,12 @@ def _job_snapshot(job: ScanJob) -> dict:
                 "status": r.status.value,
                 "subject_cn": r.subject_cn,
                 "issuer": r.issuer,
+                "not_before": r.not_before.isoformat() if r.not_before else None,
                 "not_after": r.not_after.isoformat() if r.not_after else None,
                 "days_until_expiry": r.days_until_expiry,
+                "serial_number": r.serial_number,
                 "sha256_fingerprint": r.sha256_fingerprint,
+                "sans": r.sans,
                 "resolved_ip": r.resolved_ip,
                 "note": r.note,
             }

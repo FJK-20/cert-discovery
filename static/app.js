@@ -23,19 +23,27 @@ const errorMessage = document.getElementById("error-message");
 const filterStatus = document.getElementById("filter-status");
 const exportCsv = document.getElementById("export-csv");
 const exportJson = document.getElementById("export-json");
+const overviewCard = document.getElementById("overview-card");
+const chartIssuers = document.getElementById("chart-issuers");
+const chartExpiry = document.getElementById("chart-expiry");
+const detailModal = document.getElementById("detail-modal");
 
 let currentRecords = [];
+let currentFilteredRows = [];
 let currentEventSource = null;
 
 function resetUI() {
   errorCard.classList.add("hidden");
   resultsCard.classList.add("hidden");
+  overviewCard.classList.add("hidden");
+  detailModal.classList.add("hidden");
   progressCard.classList.remove("hidden");
   progressFill.style.width = "0%";
   progressMessage.textContent = "Iniciando...";
   progressCounts.textContent = "";
   resultsBody.innerHTML = "";
   currentRecords = [];
+  currentFilteredRows = [];
   if (currentEventSource) {
     currentEventSource.close();
     currentEventSource = null;
@@ -68,21 +76,21 @@ function renderTable() {
   const filter = filterStatus.value;
   const queueStatuses = new Set(["expired", "critical", "warning"]);
 
-  const rows = currentRecords.filter((record) => {
+  currentFilteredRows = currentRecords.filter((record) => {
     if (filter === "all") return true;
     if (filter === "queue") return queueStatuses.has(record.status);
     return record.status === filter;
   });
 
-  resultsBody.innerHTML = rows
-    .map((record) => {
+  resultsBody.innerHTML = currentFilteredRows
+    .map((record, index) => {
       const expiresAt = record.not_after
         ? new Date(record.not_after).toLocaleDateString("pt-BR")
         : "—";
       const daysLeft = record.days_until_expiry ?? "—";
       const origin = record.origin === "live" ? "Handshake ao vivo" : "CT log";
       const note = record.note ? record.note : "";
-      return `<tr>
+      return `<tr data-row-index="${index}">
         <td>${badgeFor(record.status)}</td>
         <td>${escapeHtml(record.host)}</td>
         <td>${escapeHtml(record.issuer || "—")}</td>
@@ -93,6 +101,82 @@ function renderTable() {
       </tr>`;
     })
     .join("");
+}
+
+function formatDateTime(value) {
+  return value ? new Date(value).toLocaleString("pt-BR") : "—";
+}
+
+function openDetailModal(record) {
+  document.getElementById("detail-host").textContent = record.host;
+  document.getElementById("detail-status").innerHTML = badgeFor(record.status);
+  document.getElementById("detail-origin").textContent =
+    record.origin === "live" ? "Handshake ao vivo" : "Só CT log";
+  document.getElementById("detail-subject").textContent = record.subject_cn || "—";
+  document.getElementById("detail-issuer").textContent = record.issuer || "—";
+  document.getElementById("detail-not-before").textContent = formatDateTime(record.not_before);
+  document.getElementById("detail-not-after").textContent = formatDateTime(record.not_after);
+  document.getElementById("detail-days").textContent = record.days_until_expiry ?? "—";
+  document.getElementById("detail-serial").textContent = record.serial_number || "—";
+  document.getElementById("detail-fingerprint").textContent = record.sha256_fingerprint || "—";
+  document.getElementById("detail-ip").textContent = record.resolved_ip || "—";
+  document.getElementById("detail-sans").textContent =
+    record.sans && record.sans.length ? record.sans.join(", ") : "—";
+  document.getElementById("detail-note").textContent = record.note || "—";
+  detailModal.classList.remove("hidden");
+}
+
+function closeDetailModal() {
+  detailModal.classList.add("hidden");
+}
+
+function barChart(container, entries, { max } = {}) {
+  if (!entries.length) {
+    container.innerHTML = '<p class="empty">Sem dados suficientes.</p>';
+    return;
+  }
+  const peak = max ?? Math.max(...entries.map(([, count]) => count));
+  container.innerHTML = entries
+    .map(([label, count]) => {
+      const pct = peak > 0 ? Math.round((count / peak) * 100) : 0;
+      return `<div class="bar-row">
+        <span class="bar-label" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+        <span class="bar-value">${count}</span>
+      </div>`;
+    })
+    .join("");
+}
+
+function renderOverviewCharts() {
+  const liveRecords = currentRecords.filter((record) => record.origin === "live");
+  if (!liveRecords.length) {
+    overviewCard.classList.add("hidden");
+    return;
+  }
+  overviewCard.classList.remove("hidden");
+
+  const issuerCounts = new Map();
+  liveRecords.forEach((record) => {
+    const issuer = record.issuer || "Desconhecido";
+    issuerCounts.set(issuer, (issuerCounts.get(issuer) || 0) + 1);
+  });
+  const topIssuers = [...issuerCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+  barChart(chartIssuers, topIssuers);
+
+  const buckets = [
+    ["Expirado", (d) => d < 0],
+    ["0-7 dias", (d) => d >= 0 && d < 7],
+    ["8-30 dias", (d) => d >= 7 && d < 30],
+    ["31-90 dias", (d) => d >= 30 && d < 90],
+    ["90+ dias", (d) => d >= 90],
+  ];
+  const expiryEntries = buckets.map(([label, match]) => [
+    label,
+    liveRecords.filter((r) => typeof r.days_until_expiry === "number" && match(r.days_until_expiry))
+      .length,
+  ]);
+  barChart(chartExpiry, expiryEntries);
 }
 
 function escapeHtml(value) {
@@ -125,6 +209,7 @@ function finish(snapshot, jobId) {
   exportJson.href = `/api/scan/${jobId}/export.json`;
   renderSummaryStats();
   renderTable();
+  renderOverviewCharts();
 }
 
 form.addEventListener("submit", async (event) => {
@@ -188,6 +273,25 @@ document.getElementById("summary-stats").addEventListener("click", (event) => {
   if (!card) return;
   filterStatus.value = card.dataset.filter;
   renderTable();
+});
+
+resultsBody.addEventListener("click", (event) => {
+  const row = event.target.closest("tr[data-row-index]");
+  if (!row) return;
+  const record = currentFilteredRows[Number(row.dataset.rowIndex)];
+  if (record) openDetailModal(record);
+});
+
+document.getElementById("detail-modal-close").addEventListener("click", closeDetailModal);
+
+detailModal.addEventListener("click", (event) => {
+  if (event.target === detailModal) closeDetailModal();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !detailModal.classList.contains("hidden")) {
+    closeDetailModal();
+  }
 });
 
 document.getElementById("logout-btn").addEventListener("click", async () => {
