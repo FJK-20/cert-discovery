@@ -131,6 +131,67 @@ A conta (usuário, hash da senha, segredo TOTP) fica em `data/admin.json`
 o cadastro. Não há fluxo de recuperação de conta na v1 (single-admin, MVP de
 portfólio) — é um trade-off deliberado, não um recurso faltando por descuido.
 
+## Renovação automática (ACME DNS-01)
+
+Além do inventário, a aplicação emite/renova certificados **reais** via
+[Let's Encrypt](https://letsencrypt.org/) usando o protocolo ACME v2 com
+desafio **DNS-01**, resolvido automaticamente através da API da
+[Cloudflare](https://developers.cloudflare.com/api/).
+
+DNS-01 foi escolhido (em vez de HTTP-01) porque não depende de expor a porta
+80 do host que vai receber o certificado — o desafio é resolvido inteiramente
+via API, criando e removendo um registro TXT temporário na zona DNS.
+
+### Como usar
+
+1. Na seção "Renovação automática" da interface, abra "Configurar / atualizar
+   token da Cloudflare" e informe um
+   [API Token](https://dash.cloudflare.com/profile/api-tokens) (não a Global
+   API Key) com permissão **Zone → DNS → Edit**, restrito à(s) zona(s) que
+   você pretende usar. O token é validado contra a API da Cloudflare antes de
+   ser salvo (`data/dns_credentials.json`, permissão `0600`) e nunca é
+   reexibido pela interface.
+2. Informe o domínio e escolha o ambiente:
+   - **Staging** (padrão): certificado de teste, **não confiável** no
+     navegador, mas sem limite de taxa relevante — use para validar o fluxo.
+   - **Produção**: certificado real, confiável, mas sujeito ao
+     [rate limit do Let's Encrypt](https://letsencrypt.org/docs/rate-limits/)
+     (ex.: certificados por domínio registrável por semana).
+3. Confirme a autorização e acompanhe o progresso em tempo real (criação da
+   conta ACME, criação do registro DNS, aguardando propagação, validação,
+   finalização). Ao concluir, baixe `fullchain.pem` e `privkey.pem`.
+
+### O que acontece nos bastidores
+
+```mermaid
+flowchart LR
+    A[Cria/reutiliza conta ACME<br/>por ambiente] --> B[Cria pedido de<br/>certificado no Let's Encrypt]
+    B --> C[Cria TXT de validação<br/>via API Cloudflare]
+    C --> D[Aguarda propagação DNS]
+    D --> E[Let's Encrypt valida<br/>o desafio DNS-01]
+    E --> F[Emite o certificado]
+    F --> G[Remove o TXT<br/>best-effort]
+```
+
+A conta ACME (chave privada da conta, não do certificado) é criada uma vez
+por ambiente (staging/produção) e reaproveitada nas emissões seguintes,
+como o protocolo ACME espera. A chave privada de cada certificado emitido é
+gerada localmente e nunca sai do seu servidor, exceto no download que você
+mesmo solicita.
+
+### Segurança e limites
+
+- Cada emissão é uma ação sensível: rate limit dedicado (5 emissões a cada 5
+  minutos, por IP) além do rate limit geral de scans.
+- O token da Cloudflare, a chave da conta ACME e as chaves privadas dos
+  certificados emitidos ficam em `data/` com permissão `0600` — mesma
+  disciplina do restante do projeto (veja [Segurança](#segurança)).
+- Só a Cloudflare é suportada como provedor DNS na v1 — é um trade-off
+  deliberado de escopo, não uma limitação técnica do desenho.
+- Assim como o cadastro de admin, isso é uma feature de portfólio: não há
+  renovação automática agendada (cron) nem alerta de expiração — a emissão é
+  sempre disparada manualmente pela interface.
+
 ## Variáveis de ambiente
 
 | Variável                     | Padrão | Descrição                                            |
