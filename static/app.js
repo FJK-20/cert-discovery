@@ -307,3 +307,161 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
   }
   window.location.href = "/";
 });
+
+// ACME DNS-01 (emissão/renovação real via Let's Encrypt + Cloudflare)
+const acmeDnsStatus = document.getElementById("acme-dns-status");
+const acmeDnsFormDetails = document.getElementById("acme-dns-form-details");
+const acmeDnsForm = document.getElementById("acme-dns-form");
+const acmeRenewForm = document.getElementById("acme-renew-form");
+const acmeRenewBtn = document.getElementById("acme-renew-btn");
+const acmeProgress = document.getElementById("acme-progress");
+const acmeProgressMessage = document.getElementById("acme-progress-message");
+const acmeResult = document.getElementById("acme-result");
+const acmeResultMessage = document.getElementById("acme-result-message");
+const acmeDownloadCert = document.getElementById("acme-download-cert");
+const acmeDownloadKey = document.getElementById("acme-download-key");
+const acmeError = document.getElementById("acme-error");
+const acmeCertsList = document.getElementById("acme-certs-list");
+
+const ACME_TERMINAL_STATES = new Set(["done", "failed"]);
+
+function showAcmeError(message) {
+  acmeError.textContent = message;
+  acmeError.classList.remove("hidden");
+}
+
+function hideAcmeError() {
+  acmeError.classList.add("hidden");
+  acmeError.textContent = "";
+}
+
+async function refreshAcmeStatus() {
+  try {
+    const response = await fetch("/api/acme/status");
+    if (!response.ok) return;
+    const status = await response.json();
+    if (status.dns_configured) {
+      acmeDnsStatus.textContent = `DNS configurado (provedor: ${status.dns_provider}).`;
+      acmeDnsFormDetails.open = false;
+    } else {
+      acmeDnsStatus.textContent = "Nenhum provedor de DNS configurado ainda.";
+      acmeDnsFormDetails.open = true;
+    }
+  } catch {
+    acmeDnsStatus.textContent = "";
+  }
+}
+
+async function refreshAcmeCertificates() {
+  try {
+    const response = await fetch("/api/acme/certificates");
+    if (!response.ok) return;
+    const certs = await response.json();
+    if (!certs.length) {
+      acmeCertsList.innerHTML = "Nenhum certificado emitido ainda.";
+      return;
+    }
+    acmeCertsList.innerHTML = certs
+      .map((cert) => {
+        const issuedAt = formatDateTime(cert.issued_at);
+        const notAfter = formatDateTime(cert.not_after);
+        return `<div class="acme-cert-row">
+          <strong>${escapeHtml(cert.domain)}</strong>
+          <span>${escapeHtml(cert.environment)}</span>
+          <span>emitido em ${issuedAt}</span>
+          <span>expira em ${notAfter}</span>
+          <a class="button-link" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/fullchain.pem">certificado</a>
+          <a class="button-link" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/privkey.pem">chave privada</a>
+        </div>`;
+      })
+      .join("");
+  } catch {
+    // mantém a lista anterior se o fetch falhar
+  }
+}
+
+acmeDnsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  hideAcmeError();
+  const token = document.getElementById("cloudflare-token").value.trim();
+  const submitBtn = acmeDnsForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  try {
+    const response = await fetch("/api/acme/dns-credentials", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_token: token }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Erro ${response.status}`);
+    }
+    acmeDnsForm.reset();
+    await refreshAcmeStatus();
+  } catch (err) {
+    showAcmeError(err.message || "Não foi possível salvar o token da Cloudflare.");
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+acmeRenewForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  hideAcmeError();
+  acmeResult.classList.add("hidden");
+  acmeRenewBtn.disabled = true;
+
+  const domain = document.getElementById("acme-domain").value.trim();
+  const environment = document.getElementById("acme-environment").value;
+
+  try {
+    const response = await fetch("/api/acme/renew", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain, environment }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Erro ${response.status}`);
+    }
+
+    const { job_id: jobId } = await response.json();
+    acmeProgress.classList.remove("hidden");
+    acmeProgressMessage.textContent = "Iniciando emissão...";
+
+    const source = new EventSource(`/api/acme/renew/${jobId}/events`);
+    source.onmessage = async (event) => {
+      const job = JSON.parse(event.data);
+      acmeProgressMessage.textContent = job.progress_message || job.state;
+
+      if (!ACME_TERMINAL_STATES.has(job.state)) return;
+      source.close();
+      acmeProgress.classList.add("hidden");
+      acmeRenewBtn.disabled = false;
+
+      if (job.state === "failed") {
+        showAcmeError(job.error || "Falha inesperada durante a emissão do certificado.");
+        return;
+      }
+
+      acmeResultMessage.textContent = `Certificado emitido para ${job.domain} (${job.environment}).`;
+      acmeDownloadCert.href = `/api/acme/certificates/${job.certificate_id}/fullchain.pem`;
+      acmeDownloadKey.href = `/api/acme/certificates/${job.certificate_id}/privkey.pem`;
+      acmeResult.classList.remove("hidden");
+      await refreshAcmeCertificates();
+    };
+    source.onerror = () => {
+      source.close();
+      acmeProgress.classList.add("hidden");
+      acmeRenewBtn.disabled = false;
+      showAcmeError("Conexão com o servidor perdida durante a emissão.");
+    };
+  } catch (err) {
+    acmeRenewBtn.disabled = false;
+    showAcmeError(err.message || "Não foi possível iniciar a emissão do certificado.");
+  }
+});
+
+refreshAcmeStatus();
+refreshAcmeCertificates();
+

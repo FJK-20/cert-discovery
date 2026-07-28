@@ -144,6 +144,73 @@
     <section id="error-card" class="card hidden error">
       <p id="error-message"></p>
     </section>
+
+    <section id="acme-card" class="card">
+      <h2>🔄 Renovação automática (ACME DNS-01)</h2>
+      <p class="hint">
+        Emite ou renova um certificado de verdade via Let's Encrypt usando o
+        desafio DNS-01, resolvido automaticamente pela Cloudflare. Requer um
+        token de API da Cloudflare com permissão <code>Zone:DNS:Edit</code>
+        na zona do domínio.
+      </p>
+
+      <div id="acme-dns-status" class="hint"></div>
+      <details id="acme-dns-form-details">
+        <summary>Configurar / atualizar token da Cloudflare</summary>
+        <form id="acme-dns-form">
+          <label for="cloudflare-token">Token de API da Cloudflare</label>
+          <input
+            id="cloudflare-token"
+            type="password"
+            autocomplete="off"
+            placeholder="token com permissão Zone:DNS:Edit"
+            required
+          />
+          <button type="submit">Salvar e validar token</button>
+        </form>
+      </details>
+
+      <form id="acme-renew-form">
+        <label for="acme-domain">Domínio a emitir/renovar</label>
+        <input
+          id="acme-domain"
+          type="text"
+          placeholder="app.exemplo.com.br"
+          autocomplete="off"
+          required
+        />
+
+        <label for="acme-environment">Ambiente</label>
+        <select id="acme-environment">
+          <option value="staging" selected>Staging (teste — certificado não confiável, sem rate limit real)</option>
+          <option value="production">Produção (certificado real — sujeito a rate limit do Let's Encrypt)</option>
+        </select>
+
+        <label class="consent">
+          <input id="acme-consent" type="checkbox" required />
+          Confirmo que sou autorizado a emitir certificados para este domínio
+          e que ele está na zona Cloudflare configurada acima.
+        </label>
+
+        <button id="acme-renew-btn" type="submit">Emitir certificado</button>
+      </form>
+
+      <div id="acme-progress" class="hidden">
+        <p id="acme-progress-message" class="hint"></p>
+      </div>
+
+      <div id="acme-result" class="hidden">
+        <p id="acme-result-message"></p>
+        <a id="acme-download-cert" class="button-link">Baixar certificado (fullchain.pem)</a>
+        &nbsp;·&nbsp;
+        <a id="acme-download-key" class="button-link">Baixar chave privada (privkey.pem)</a>
+      </div>
+
+      <div id="acme-error" class="hidden error-banner"></div>
+
+      <h3>Certificados emitidos nesta sessão do servidor</h3>
+      <div id="acme-certs-list" class="hint">Nenhum certificado emitido ainda.</div>
+    </section>
   </main>
 
   <div id="detail-modal" class="modal-overlay hidden">

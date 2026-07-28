@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.routes_acme import router as acme_router
 from app.api.routes_scan import router as scan_router
 from app.auth.dependencies import SESSION_COOKIE_NAME, get_authenticated_username
 from app.auth.routes_auth import router as auth_router
@@ -19,6 +20,7 @@ app = FastAPI(
 )
 app.include_router(auth_router)
 app.include_router(scan_router)
+app.include_router(acme_router)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 

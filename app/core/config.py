@@ -44,5 +44,16 @@ class Settings:
     auth_rate_limit_requests: int = _int_env("CERTDISC_AUTH_RATE_LIMIT", 8)
     auth_rate_limit_window_seconds: float = 300.0
 
+    # ACME / renovação DNS-01
+    # Staging por padrão de propósito: produção tem rate limit real (Let's
+    # Encrypt) e emite certificado confiável de verdade — trocar exige ação
+    # explícita do usuário, nunca é o default.
+    acme_directory_staging: str = "https://acme-staging-v02.api.letsencrypt.org/directory"
+    acme_directory_production: str = "https://acme-v02.api.letsencrypt.org/directory"
+    acme_job_budget_seconds: float = 180.0
+    acme_job_ttl_seconds: float = 30 * 60
+    acme_dns_propagation_wait_seconds: float = 15.0
+    cloudflare_api_base: str = "https://api.cloudflare.com/client/v4"
+
 
 settings = Settings()

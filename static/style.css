@@ -535,3 +535,31 @@ footer {
 #results-table tbody tr:hover {
   background: var(--bg);
 }
+
+/* Seção ACME */
+#acme-card h3 {
+  margin-top: 1.5rem;
+  font-size: 1rem;
+}
+
+.acme-cert-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.acme-cert-row:last-child {
+  border-bottom: none;
+}
+
+.acme-cert-row span {
+  color: var(--muted);
+}
+
+#acme-dns-status {
+  margin-bottom: 0.75rem;
+}
