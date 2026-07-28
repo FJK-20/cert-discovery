@@ -323,6 +323,22 @@ footer {
   margin-top: 0.25rem;
 }
 
+.button-link-block {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  background: var(--brand);
+  color: white;
+  border: none;
+  padding: 0.7rem 1.5rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  margin-top: 0.5rem;
+}
+
 /* Banner de erro fica acima do card ativo em vez de substituí-lo — o
    formulário nunca some, então dá pra corrigir e tentar de novo na hora. */
 .error-banner {

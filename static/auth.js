@@ -3,16 +3,40 @@ const sections = {
   mfaEnroll: document.getElementById("mfa-enroll"),
   loginPassword: document.getElementById("login-password-section"),
   loginMfa: document.getElementById("login-mfa"),
+  manualContinue: document.getElementById("manual-continue"),
 };
 
 const errorBanner = document.getElementById("auth-error-message");
 let pendingLoginToken = null;
+
+// Trava contra loop de redirecionamento: se o navegador não estiver
+// aceitando/reenviando o cookie de sessão por qualquer motivo (extensão de
+// privacidade, bloqueio de cookies para localhost, etc.), o servidor e o
+// próprio cliente podem discordar sobre "autenticado ou não" e ficar
+// redirecionando infinitamente entre auth.html e "/". Isso garante que a
+// tentativa automática só acontece uma vez por aba; se ela não resolver,
+// mostramos uma saída manual em vez de continuar piscando a tela.
+const REDIRECT_KEY = "certdisc_redirect_attempted";
 
 function showSection(name) {
   Object.values(sections).forEach((section) => section.classList.add("hidden"));
   const section = sections[name];
   section.classList.remove("hidden");
   section.querySelector("input")?.focus();
+}
+
+function showManualContinue() {
+  Object.values(sections).forEach((section) => section.classList.add("hidden"));
+  sections.manualContinue.classList.remove("hidden");
+}
+
+function navigateToApp() {
+  if (sessionStorage.getItem(REDIRECT_KEY)) {
+    showManualContinue();
+    return;
+  }
+  sessionStorage.setItem(REDIRECT_KEY, "1");
+  window.location.href = "/";
 }
 
 // Erro aparece acima do card atual, sem esconder o formulário — o usuário
@@ -46,11 +70,10 @@ function renderEnrollment(data) {
   showSection("mfaEnroll");
 }
 
-// Confirma que o cookie de sessão recém-emitido já é reconhecido pelo
-// servidor antes de navegar. Sem isso, em alguns navegadores o
-// window.location.href logo após o Set-Cookie corre com o commit do
-// cookie e a página recarrega como se ainda não estivesse autenticado —
-// travando na mesma tela até um F5 manual.
+// Confirma (via fetch, sempre same-origin, não afetado por SameSite) que o
+// servidor já reconhece a sessão antes de navegar — dá uma chance de o
+// cookie assentar antes da navegação, mas a garantia real contra loop é o
+// navigateToApp()/REDIRECT_KEY acima, não esse polling.
 async function goToApp() {
   for (let attempt = 0; attempt < 15; attempt++) {
     const response = await fetch("/api/auth/status");
@@ -58,11 +81,14 @@ async function goToApp() {
     if (state === "authenticated") break;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  window.location.href = "/";
+  navigateToApp();
 }
 
 async function withSubmitLock(form, action) {
   clearError();
+  // Cada novo envio de formulário (login/cadastro) merece uma tentativa
+  // fresca de redirecionamento automático.
+  sessionStorage.removeItem(REDIRECT_KEY);
   const button = form.querySelector("button[type=submit]");
   button.disabled = true;
   try {
@@ -80,7 +106,7 @@ async function init() {
     const { state } = await response.json();
 
     if (state === "authenticated") {
-      window.location.href = "/";
+      navigateToApp();
       return;
     }
     if (state === "needs_setup") {
