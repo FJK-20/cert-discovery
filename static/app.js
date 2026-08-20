@@ -24,6 +24,8 @@ const filterStatus = document.getElementById("filter-status");
 const exportCsv = document.getElementById("export-csv");
 const exportJson = document.getElementById("export-json");
 const overviewCard = document.getElementById("overview-card");
+const dashboardStatsCard = document.getElementById("dashboard-stats-card");
+const dashboardEmptyCard = document.getElementById("dashboard-empty-card");
 const chartIssuers = document.getElementById("chart-issuers");
 const chartExpiry = document.getElementById("chart-expiry");
 const detailModal = document.getElementById("detail-modal");
@@ -36,6 +38,7 @@ function resetUI() {
   errorCard.classList.add("hidden");
   resultsCard.classList.add("hidden");
   overviewCard.classList.add("hidden");
+  dashboardStatsCard.classList.add("hidden");
   detailModal.classList.add("hidden");
   progressCard.classList.remove("hidden");
   progressFill.style.width = "0%";
@@ -222,6 +225,8 @@ function finish(snapshot, jobId) {
   }
 
   resultsCard.classList.remove("hidden");
+  dashboardStatsCard.classList.remove("hidden");
+  dashboardEmptyCard.classList.add("hidden");
   exportCsv.href = `/api/scan/${jobId}/export.csv`;
   exportJson.href = `/api/scan/${jobId}/export.json`;
   renderSummaryStats();
@@ -290,6 +295,7 @@ document.getElementById("summary-stats").addEventListener("click", (event) => {
   if (!card) return;
   filterStatus.value = card.dataset.filter;
   renderTable();
+  location.hash = "#inventario";
 });
 
 resultsBody.addEventListener("click", (event) => {
@@ -309,14 +315,41 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !detailModal.classList.contains("hidden")) {
     closeDetailModal();
   }
-  if (event.key === "Escape" && !securityModal.classList.contains("hidden")) {
-    closeSecurityModal();
-  }
 });
+
+// Navegação por telas — cada função vive na sua própria tela (Dashboard /
+// Inventário / Emissão / Renovação / Configurações), roteada pelo hash da
+// URL. Isso dá link direto e botão voltar/avançar do navegador de graça,
+// sem precisar de framework nenhum.
+const SCREEN_NAMES = ["dashboard", "inventario", "emissao", "renovacao", "configuracoes"];
+const screenSections = Object.fromEntries(
+  SCREEN_NAMES.map((name) => [name, document.getElementById(`screen-${name}`)])
+);
+const navLinks = document.querySelectorAll("#main-nav a[data-screen]");
+
+function showScreen(name) {
+  if (!SCREEN_NAMES.includes(name)) name = "dashboard";
+  Object.entries(screenSections).forEach(([key, el]) => {
+    el.classList.toggle("hidden", key !== name);
+  });
+  navLinks.forEach((a) => {
+    if (a.dataset.screen === name) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
+  if (name === "configuracoes") refreshSecurityStatus();
+}
+
+function routeFromHash() {
+  showScreen((location.hash || "#dashboard").slice(1));
+}
+
+window.addEventListener("hashchange", routeFromHash);
+// A chamada inicial fica no fim do arquivo (não aqui) — se a página
+// carregar direto em #configuracoes, showScreen() chama
+// refreshSecurityStatus(), que usa consts definidas mais abaixo.
 
 // Segurança / MFA opcional — ativação exige provar (com um código válido)
 // que o autenticador está configurado certo antes de marcar como ativo.
-const securityModal = document.getElementById("security-modal");
 const securityError = document.getElementById("security-error");
 const securityStatusView = document.getElementById("security-status-view");
 const securityEnrollView = document.getElementById("security-enroll-view");
@@ -350,21 +383,6 @@ async function refreshSecurityStatus() {
   securityDisableBtn.classList.toggle("hidden", !enabled);
   showSecurityView(securityStatusView);
 }
-
-function openSecurityModal() {
-  securityModal.classList.remove("hidden");
-  refreshSecurityStatus();
-}
-
-function closeSecurityModal() {
-  securityModal.classList.add("hidden");
-}
-
-document.getElementById("security-btn").addEventListener("click", openSecurityModal);
-document.getElementById("security-modal-close").addEventListener("click", closeSecurityModal);
-securityModal.addEventListener("click", (event) => {
-  if (event.target === securityModal) closeSecurityModal();
-});
 
 securityEnableBtn.addEventListener("click", async () => {
   clearSecurityError();
@@ -596,4 +614,8 @@ acmeRenewForm.addEventListener("submit", async (event) => {
 
 refreshAcmeStatus();
 refreshAcmeCertificates();
+
+// Rota inicial — por último, depois que toda função/const que uma tela
+// pode precisar (ex: refreshSecurityStatus) já foi definida.
+routeFromHash();
 

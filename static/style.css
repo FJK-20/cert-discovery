@@ -70,9 +70,47 @@ main {
   max-width: 960px;
   margin: 0 auto;
   padding: 1rem 1.5rem 3rem;
+}
+
+.screen {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+}
+
+/* Navegação entre telas (Dashboard/Inventário/Emissão/Renovação/
+   Configurações) — cada uma roteada pelo hash da URL (ver app.js). */
+.main-nav {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.main-nav a {
+  display: inline-flex;
+  align-items: center;
+  /* min-height 44px: mesma régua de alvo de toque do resto do app. */
+  min-height: 44px;
+  padding: 0 0.9rem;
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.92rem;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.main-nav a[aria-current="page"] {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+}
+
+.main-nav a:hover {
+  color: var(--text);
 }
 
 .card {
