@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.acme import cloudflare
-from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState
+from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, DnsMode
 from app.acme.renewal import renewal_manager
 from app.acme.store import DnsCredentials, acme_store
 from app.auth.dependencies import require_session
@@ -20,6 +20,11 @@ router = APIRouter(prefix="/api/acme", dependencies=[Depends(require_session)])
 # limite dedicado, mais restrito que o de scans.
 _rate_limiter = SlidingWindowRateLimiter(max_requests=5, window_seconds=300)
 
+# "Verificar propagação" no modo manual é só uma consulta DNS — a pessoa
+# clica de novo a cada poucos segundos enquanto espera propagar, então
+# tem seu próprio limite, bem mais generoso que o de iniciar uma emissão.
+_confirm_rate_limiter = SlidingWindowRateLimiter(max_requests=30, window_seconds=60)
+
 _TERMINAL_STATES = {AcmeJobState.DONE, AcmeJobState.FAILED}
 
 
@@ -30,6 +35,7 @@ class DnsCredentialsRequest(BaseModel):
 class RenewRequest(BaseModel):
     domain: str = Field(..., min_length=1, max_length=253)
     environment: AcmeEnvironment = AcmeEnvironment.STAGING
+    dns_mode: DnsMode = DnsMode.MANUAL
 
 
 def _client_key(request: Request) -> str:
@@ -41,10 +47,13 @@ def _job_snapshot(job: AcmeJob) -> dict:
         "id": job.id,
         "domain": job.domain,
         "environment": job.environment.value,
+        "dns_mode": job.dns_mode.value,
         "state": job.state.value,
         "progress_message": job.progress_message,
         "error": job.error,
         "certificate_id": job.certificate_id,
+        "dns_record_name": job.dns_record_name,
+        "dns_record_value": job.dns_record_value,
     }
 
 
@@ -81,7 +90,7 @@ async def renew(payload: RenewRequest, request: Request) -> dict:
             status_code=429,
             detail="Muitas solicitações de emissão — aguarde alguns minutos.",
         )
-    if acme_store.load_dns_credentials() is None:
+    if payload.dns_mode == DnsMode.CLOUDFLARE and acme_store.load_dns_credentials() is None:
         raise HTTPException(
             status_code=400,
             detail="Configure as credenciais de DNS (Cloudflare) antes de emitir um certificado.",
@@ -91,8 +100,21 @@ async def renew(payload: RenewRequest, request: Request) -> dict:
     if not domain or "/" in domain or " " in domain:
         raise HTTPException(status_code=400, detail="Domínio inválido.")
 
-    job = await renewal_manager.create(domain, payload.environment)
+    job = await renewal_manager.create(domain, payload.environment, payload.dns_mode)
     return {"job_id": job.id}
+
+
+@router.post("/renew/{job_id}/confirm-dns")
+async def confirm_dns(job_id: str, request: Request) -> dict:
+    if not _confirm_rate_limiter.allow(_client_key(request)):
+        raise HTTPException(
+            status_code=429,
+            detail="Muitas verificações — aguarde um minuto antes de tentar de novo.",
+        )
+    ok, message = await renewal_manager.confirm_dns(job_id)
+    if not ok:
+        raise HTTPException(status_code=409, detail=message)
+    return {"ok": True, "message": message}
 
 
 @router.get("/renew/{job_id}/events")

@@ -13,7 +13,6 @@ desafio DNS-01 — os 4 primeiros passos do fluxo abaixo) antes de integrar.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -111,15 +110,18 @@ def issue_certificate(
     store: AcmeStore,
     set_dns_challenge: Callable[[str, str], object],
     clear_dns_challenge: Callable[[object], None],
-    dns_propagation_wait_seconds: float,
+    wait_for_dns_ready: Callable[[], None],
     total_budget_seconds: float,
     on_progress: Callable[[str], None] = lambda _msg: None,
 ) -> IssuedResult:
     """Executa o fluxo completo. `set_dns_challenge(record_name, value)`
     deve criar o TXT e devolver um "handle" opaco que `clear_dns_challenge`
-    usa pra remover — desacopla este módulo do provedor DNS específico
-    (Cloudflare é o único implementado hoje, ver app/acme/cloudflare.py e
-    app/acme/renewal.py, mas a interface já é genérica)."""
+    usa pra remover — desacopla este módulo do provedor DNS específico.
+    `wait_for_dns_ready()` bloqueia até o desafio estar pronto pra validar:
+    no modo automático (Cloudflare) é só um `time.sleep` de propagação; no
+    modo manual, bloqueia até a pessoa confirmar (ver
+    app/acme/renewal.py) — a interface não sabe nem precisa saber qual dos
+    dois é."""
     on_progress("Preparando conta ACME...")
     acme, account_key = _get_or_create_account(store, environment, directory_url)
 
@@ -146,10 +148,8 @@ def issue_certificate(
             handle = set_dns_challenge(record_name, validation)
             dns_handles.append(handle)
 
-        on_progress(
-            f"Aguardando propagação do DNS ({int(dns_propagation_wait_seconds)}s)..."
-        )
-        time.sleep(dns_propagation_wait_seconds)
+        on_progress("Aguardando o desafio DNS ficar pronto...")
+        wait_for_dns_ready()
 
         on_progress("Avisando a CA que o desafio está pronto...")
         for authz in orderr.authorizations:

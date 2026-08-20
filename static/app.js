@@ -458,12 +458,22 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
   window.location.reload();
 });
 
-// ACME DNS-01 (emissão/renovação real via Let's Encrypt + Cloudflare)
+// ACME DNS-01 (emissão/renovação real via Let's Encrypt). Modo padrão é
+// manual (funciona com qualquer provedor de DNS); Cloudflare é um plugin
+// opcional pra quem quer automação total — ver "A decisão de arquitetura"
+// no roadmap.
+const acmeDnsMode = document.getElementById("acme-dns-mode");
+const acmeCloudflareConfig = document.getElementById("acme-cloudflare-config");
 const acmeDnsStatus = document.getElementById("acme-dns-status");
 const acmeDnsFormDetails = document.getElementById("acme-dns-form-details");
 const acmeDnsForm = document.getElementById("acme-dns-form");
 const acmeRenewForm = document.getElementById("acme-renew-form");
 const acmeRenewBtn = document.getElementById("acme-renew-btn");
+const acmeDnsInstructions = document.getElementById("acme-dns-instructions");
+const acmeDnsInstrName = document.getElementById("acme-dns-instr-name");
+const acmeDnsInstrValue = document.getElementById("acme-dns-instr-value");
+const acmeConfirmDnsBtn = document.getElementById("acme-confirm-dns-btn");
+const acmeConfirmDnsMessage = document.getElementById("acme-confirm-dns-message");
 const acmeProgress = document.getElementById("acme-progress");
 const acmeProgressMessage = document.getElementById("acme-progress-message");
 const acmeResult = document.getElementById("acme-result");
@@ -474,6 +484,29 @@ const acmeError = document.getElementById("acme-error");
 const acmeCertsList = document.getElementById("acme-certs-list");
 
 const ACME_TERMINAL_STATES = new Set(["done", "failed"]);
+let currentAcmeJobId = null;
+
+acmeDnsMode.addEventListener("change", () => {
+  acmeCloudflareConfig.classList.toggle("hidden", acmeDnsMode.value !== "cloudflare");
+});
+
+document.querySelectorAll(".copy-btn[data-copy-target]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const target = document.getElementById(btn.dataset.copyTarget);
+    if (!target) return;
+    try {
+      await navigator.clipboard.writeText(target.textContent);
+      const original = btn.textContent;
+      btn.textContent = "copiado!";
+      setTimeout(() => {
+        btn.textContent = original;
+      }, 1500);
+    } catch {
+      // clipboard pode falhar (permissão, contexto não-seguro) — o valor
+      // já está selecionável na tela, então não é um caminho sem saída.
+    }
+  });
+});
 
 function showAcmeError(message) {
   acmeError.textContent = message;
@@ -559,16 +592,19 @@ acmeRenewForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   hideAcmeError();
   acmeResult.classList.add("hidden");
+  acmeDnsInstructions.classList.add("hidden");
+  acmeConfirmDnsMessage.textContent = "";
   acmeRenewBtn.disabled = true;
 
   const domain = document.getElementById("acme-domain").value.trim();
   const environment = document.getElementById("acme-environment").value;
+  const dnsMode = acmeDnsMode.value;
 
   try {
     const response = await fetch("/api/acme/renew", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domain, environment }),
+      body: JSON.stringify({ domain, environment, dns_mode: dnsMode }),
     });
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
@@ -576,6 +612,7 @@ acmeRenewForm.addEventListener("submit", async (event) => {
     }
 
     const { job_id: jobId } = await response.json();
+    currentAcmeJobId = jobId;
     acmeProgress.classList.remove("hidden");
     acmeProgressMessage.textContent = "Iniciando emissão...";
 
@@ -584,7 +621,19 @@ acmeRenewForm.addEventListener("submit", async (event) => {
       const job = JSON.parse(event.data);
       acmeProgressMessage.textContent = job.progress_message || job.state;
 
-      if (!ACME_TERMINAL_STATES.has(job.state)) return;
+      if (job.state === "awaiting_dns") {
+        acmeProgress.classList.add("hidden");
+        acmeDnsInstrName.textContent = job.dns_record_name || "";
+        acmeDnsInstrValue.textContent = job.dns_record_value || "";
+        acmeDnsInstructions.classList.remove("hidden");
+        return;
+      }
+      acmeDnsInstructions.classList.add("hidden");
+
+      if (!ACME_TERMINAL_STATES.has(job.state)) {
+        acmeProgress.classList.remove("hidden");
+        return;
+      }
       source.close();
       acmeProgress.classList.add("hidden");
       acmeRenewBtn.disabled = false;
@@ -603,12 +652,36 @@ acmeRenewForm.addEventListener("submit", async (event) => {
     source.onerror = () => {
       source.close();
       acmeProgress.classList.add("hidden");
+      acmeDnsInstructions.classList.add("hidden");
       acmeRenewBtn.disabled = false;
       showAcmeError("Conexão com o servidor perdida durante a emissão.");
     };
   } catch (err) {
     acmeRenewBtn.disabled = false;
     showAcmeError(err.message || "Não foi possível iniciar a emissão do certificado.");
+  }
+});
+
+acmeConfirmDnsBtn.addEventListener("click", async () => {
+  if (!currentAcmeJobId) return;
+  acmeConfirmDnsBtn.disabled = true;
+  acmeConfirmDnsMessage.textContent = "Verificando...";
+  try {
+    const response = await fetch(`/api/acme/renew/${currentAcmeJobId}/confirm-dns`, {
+      method: "POST",
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      // 409 aqui é esperado (ainda não propagou) — não é um erro fatal,
+      // a pessoa só tenta de novo.
+      acmeConfirmDnsMessage.textContent = data.detail || "Ainda não encontramos o registro.";
+      return;
+    }
+    acmeConfirmDnsMessage.textContent = "DNS confirmado — continuando com a emissão...";
+  } catch {
+    acmeConfirmDnsMessage.textContent = "Não foi possível verificar agora. Tente de novo.";
+  } finally {
+    acmeConfirmDnsBtn.disabled = false;
   }
 });
 

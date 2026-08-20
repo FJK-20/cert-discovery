@@ -8,18 +8,29 @@ Diferença chave: o fluxo ACME em si (app/acme/issuance.py) é síncrono
 thread em `job.progress_message`/`job.state` são seguras porque cada
 atribuição é uma operação atômica sob o GIL; não há seção crítica maior
 que precise de lock aqui.
+
+Dois modos de resolver o desafio DNS-01 (`job.dns_mode`):
+- `manual` (padrão, genérico): a thread de emissão cria o pedido na CA,
+  publica o nome/valor do TXT esperado em `job.dns_record_*` e
+  **bloqueia** num `threading.Event` até alguém chamar `confirm_dns()` —
+  isso é o que a pessoa faz manualmente em qualquer provedor de DNS, sem
+  credencial nenhuma.
+- `cloudflare`: automático, mesmo fluxo de sempre (token de API cria e
+  remove o TXT sozinho, só uma espera fixa de propagação).
 """
 
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 import uuid
 from datetime import UTC, datetime
 
 from app.acme import cloudflare
+from app.acme.dns_check import txt_record_contains
 from app.acme.issuance import IssuanceError, issue_certificate
-from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState
+from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, DnsMode
 from app.acme.store import AcmeStore, IssuedCertificate, acme_store
 from app.core.config import settings
 
@@ -27,31 +38,67 @@ from app.core.config import settings
 class AcmeRenewalManager:
     def __init__(self, store: AcmeStore = acme_store) -> None:
         self._jobs: dict[str, AcmeJob] = {}
+        self._confirm_events: dict[str, threading.Event] = {}
         self._store = store
 
-    async def create(self, domain: str, environment: AcmeEnvironment) -> AcmeJob:
+    async def create(
+        self, domain: str, environment: AcmeEnvironment, dns_mode: DnsMode = DnsMode.MANUAL
+    ) -> AcmeJob:
         self._evict_expired()
-        job = AcmeJob(domain=domain, environment=environment)
+        job = AcmeJob(domain=domain, environment=environment, dns_mode=dns_mode)
         self._jobs[job.id] = job
+        if dns_mode == DnsMode.MANUAL:
+            self._confirm_events[job.id] = threading.Event()
         asyncio.create_task(self._run(job))
         return job
 
     def get(self, job_id: str) -> AcmeJob | None:
         return self._jobs.get(job_id)
 
+    async def confirm_dns(self, job_id: str) -> tuple[bool, str]:
+        """Chamado pela rota quando a pessoa clica "Verificar propagação e
+        continuar" no modo manual. Só destrava a thread de emissão se o
+        registro TXT esperado já estiver visível publicamente — evita
+        gastar uma tentativa de validação (rate limit da CA) num registro
+        que ainda não propagou."""
+        job = self._jobs.get(job_id)
+        if job is None:
+            return False, "Job não encontrado (pode ter expirado)."
+        if job.state != AcmeJobState.AWAITING_DNS:
+            return False, "Esse job não está esperando confirmação de DNS."
+        if job.dns_record_name is None or job.dns_record_value is None:
+            return False, "Estado interno inválido — tente emitir novamente."
+
+        found = await txt_record_contains(job.dns_record_name, job.dns_record_value, timeout=10.0)
+        if not found:
+            return (
+                False,
+                "Registro TXT ainda não encontrado — aguarde a propagação e tente de novo.",
+            )
+
+        job.state = AcmeJobState.RUNNING
+        job.progress_message = "DNS confirmado — avisando a CA..."
+        event = self._confirm_events.get(job_id)
+        if event is not None:
+            event.set()
+        return True, "DNS confirmado."
+
     def _evict_expired(self) -> None:
         cutoff = time.time() - settings.acme_job_ttl_seconds
         expired = [jid for jid, job in self._jobs.items() if job.created_at.timestamp() < cutoff]
         for jid in expired:
             self._jobs.pop(jid, None)
+            self._confirm_events.pop(jid, None)
 
     async def _run(self, job: AcmeJob) -> None:
         job.state = AcmeJobState.RUNNING
+        budget = (
+            settings.acme_manual_dns_budget_seconds
+            if job.dns_mode == DnsMode.MANUAL
+            else settings.acme_job_budget_seconds
+        )
         try:
-            await asyncio.wait_for(
-                asyncio.to_thread(self._issue_sync, job),
-                timeout=settings.acme_job_budget_seconds,
-            )
+            await asyncio.wait_for(asyncio.to_thread(self._issue_sync, job), timeout=budget)
             job.state = AcmeJobState.DONE
             job.progress_message = "Certificado emitido com sucesso."
         except TimeoutError:
@@ -63,8 +110,35 @@ class AcmeRenewalManager:
         except Exception as exc:  # nunca deixa o job travado em progresso
             job.state = AcmeJobState.FAILED
             job.error = f"Erro inesperado: {exc}"
+        finally:
+            self._confirm_events.pop(job.id, None)
 
     def _issue_sync(self, job: AcmeJob) -> None:
+        if job.dns_mode == DnsMode.CLOUDFLARE:
+            result = self._issue_via_cloudflare(job)
+        else:
+            result = self._issue_via_manual_dns(job)
+
+        cert = IssuedCertificate(
+            id=str(uuid.uuid4()),
+            domain=job.domain,
+            environment=job.environment.value,
+            issued_at=datetime.now(UTC).isoformat(),
+            not_after=result.not_after.isoformat() if result.not_after else None,
+            fullchain_pem=result.fullchain_pem,
+            private_key_pem=result.private_key_pem,
+        )
+        self._store.save_certificate(cert)
+        job.certificate_id = cert.id
+
+    def _directory_url(self, job: AcmeJob) -> str:
+        return (
+            settings.acme_directory_production
+            if job.environment == AcmeEnvironment.PRODUCTION
+            else settings.acme_directory_staging
+        )
+
+    def _issue_via_cloudflare(self, job: AcmeJob):
         creds = self._store.load_dns_credentials()
         if creds is None:
             raise IssuanceError(
@@ -89,42 +163,55 @@ class AcmeRenewalManager:
             # já é tratado como best-effort por quem chama (issue_certificate).
             cloudflare.delete_txt_record(zone_id, record_id, creds.api_token)
 
-        def on_progress(message: str) -> None:
-            job.progress_message = message
-
-        directory_url = (
-            settings.acme_directory_production
-            if job.environment == AcmeEnvironment.PRODUCTION
-            else settings.acme_directory_staging
-        )
+        def wait_for_dns_ready() -> None:
+            time.sleep(settings.acme_dns_propagation_wait_seconds)
 
         # Deixa uma margem dentro do orçamento total do job para a limpeza
         # do DNS e a gravação do certificado depois que a lib retorna.
         issuance_budget = max(30.0, settings.acme_job_budget_seconds - 20.0)
 
-        result = issue_certificate(
+        return issue_certificate(
             domain=job.domain,
             environment=job.environment.value,
-            directory_url=directory_url,
+            directory_url=self._directory_url(job),
             store=self._store,
             set_dns_challenge=set_dns_challenge,
             clear_dns_challenge=clear_dns_challenge,
-            dns_propagation_wait_seconds=settings.acme_dns_propagation_wait_seconds,
+            wait_for_dns_ready=wait_for_dns_ready,
             total_budget_seconds=issuance_budget,
-            on_progress=on_progress,
+            on_progress=lambda message: setattr(job, "progress_message", message),
         )
 
-        cert = IssuedCertificate(
-            id=str(uuid.uuid4()),
+    def _issue_via_manual_dns(self, job: AcmeJob):
+        def set_dns_challenge(record_name: str, value: str) -> None:
+            job.dns_record_name = record_name
+            job.dns_record_value = value
+            job.state = AcmeJobState.AWAITING_DNS
+            job.progress_message = "Aguardando você criar o registro TXT no seu DNS..."
+            return None
+
+        def clear_dns_challenge(_handle: None) -> None:
+            job.progress_message = "Emitido — pode remover o registro TXT do seu DNS (opcional)."
+
+        def wait_for_dns_ready() -> None:
+            event = self._confirm_events.get(job.id)
+            if event is None:
+                raise IssuanceError("Estado interno inválido — tente emitir novamente.")
+            confirmed = event.wait(timeout=settings.acme_manual_dns_budget_seconds)
+            if not confirmed:
+                raise IssuanceError("Tempo esgotado aguardando confirmação do registro DNS.")
+
+        return issue_certificate(
             domain=job.domain,
             environment=job.environment.value,
-            issued_at=datetime.now(UTC).isoformat(),
-            not_after=result.not_after.isoformat() if result.not_after else None,
-            fullchain_pem=result.fullchain_pem,
-            private_key_pem=result.private_key_pem,
+            directory_url=self._directory_url(job),
+            store=self._store,
+            set_dns_challenge=set_dns_challenge,
+            clear_dns_challenge=clear_dns_challenge,
+            wait_for_dns_ready=wait_for_dns_ready,
+            total_budget_seconds=settings.acme_manual_dns_budget_seconds,
+            on_progress=lambda message: setattr(job, "progress_message", message),
         )
-        self._store.save_certificate(cert)
-        job.certificate_id = cert.id
 
 
 renewal_manager = AcmeRenewalManager()

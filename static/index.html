@@ -170,27 +170,33 @@
     <section id="acme-card" class="card">
       <h2>🔄 Emissão via ACME (DNS-01)</h2>
       <p class="hint">
-        Emite ou renova um certificado de verdade via Let's Encrypt usando o
-        desafio DNS-01, resolvido automaticamente pela Cloudflare. Requer um
-        token de API da Cloudflare com permissão <code>Zone:DNS:Edit</code>
-        na zona do domínio.
+        Emite ou renova um certificado de verdade via Let's Encrypt, provando
+        que você é dono do domínio com um registro DNS temporário. O modo
+        padrão funciona com <strong>qualquer</strong> provedor de DNS, sem
+        credencial nenhuma — automação via API é opcional.
       </p>
 
-      <div id="acme-dns-status" class="hint"></div>
-      <details id="acme-dns-form-details">
-        <summary>Configurar / atualizar token da Cloudflare</summary>
-        <form id="acme-dns-form">
-          <label for="cloudflare-token">Token de API da Cloudflare</label>
-          <input
-            id="cloudflare-token"
-            type="password"
-            autocomplete="off"
-            placeholder="token com permissão Zone:DNS:Edit"
-            required
-          />
-          <button type="submit">Salvar e validar token</button>
-        </form>
-      </details>
+      <!-- Fica FORA de #acme-renew-form logo abaixo: HTML não permite
+           <form> aninhado, e o token da Cloudflare é salvo numa ação
+           própria (botão e POST separados), não faz parte do submit de
+           emissão — precisa ser irmão, não filho. -->
+      <div id="acme-cloudflare-config" class="hidden">
+        <div id="acme-dns-status" class="hint"></div>
+        <details id="acme-dns-form-details">
+          <summary>Configurar / atualizar token da Cloudflare</summary>
+          <form id="acme-dns-form">
+            <label for="cloudflare-token">Token de API da Cloudflare</label>
+            <input
+              id="cloudflare-token"
+              type="password"
+              autocomplete="off"
+              placeholder="token com permissão Zone:DNS:Edit"
+              required
+            />
+            <button type="submit">Salvar e validar token</button>
+          </form>
+        </details>
+      </div>
 
       <form id="acme-renew-form">
         <label for="acme-domain">Domínio a emitir/renovar</label>
@@ -208,14 +214,35 @@
           <option value="production">Produção (certificado real — sujeito a rate limit do Let's Encrypt)</option>
         </select>
 
+        <label for="acme-dns-mode">Como validar o domínio</label>
+        <select id="acme-dns-mode">
+          <option value="manual" selected>Manual — eu crio o registro TXT (qualquer provedor de DNS)</option>
+          <option value="cloudflare">Automático via Cloudflare (precisa de token de API)</option>
+        </select>
+
         <label class="consent">
           <input id="acme-consent" type="checkbox" required />
-          Confirmo que sou autorizado a emitir certificados para este domínio
-          e que ele está na zona Cloudflare configurada acima.
+          Confirmo que sou autorizado a emitir certificados para este domínio.
         </label>
 
         <button id="acme-renew-btn" type="submit">Emitir certificado</button>
       </form>
+
+      <div id="acme-dns-instructions" class="hidden dns-instructions">
+        <h3>Crie este registro no DNS do seu domínio</h3>
+        <dl class="dns-record-box">
+          <dt>Tipo</dt><dd>TXT</dd>
+          <dt>Nome</dt><dd><code id="acme-dns-instr-name"></code> <button type="button" class="copy-btn" data-copy-target="acme-dns-instr-name">copiar</button></dd>
+          <dt>Valor</dt><dd><code id="acme-dns-instr-value"></code> <button type="button" class="copy-btn" data-copy-target="acme-dns-instr-value">copiar</button></dd>
+        </dl>
+        <p class="hint">
+          Depois de criar o registro, clique abaixo — verificamos se já
+          propagou antes de avisar a Let's Encrypt. Se ainda não propagou,
+          é só tentar de novo em alguns instantes.
+        </p>
+        <button id="acme-confirm-dns-btn" type="button">Verificar propagação e continuar</button>
+        <p id="acme-confirm-dns-message" class="hint"></p>
+      </div>
 
       <div id="acme-progress" class="hidden">
         <p id="acme-progress-message" class="hint"></p>

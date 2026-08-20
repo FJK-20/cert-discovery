@@ -51,6 +51,9 @@ class Settings:
     acme_directory_staging: str = "https://acme-staging-v02.api.letsencrypt.org/directory"
     acme_directory_production: str = "https://acme-v02.api.letsencrypt.org/directory"
     acme_job_budget_seconds: float = 180.0
+    # Modo manual espera uma pessoa ir criar o registro TXT — minutos, não
+    # segundos. Budget bem maior que o do modo automático (Cloudflare).
+    acme_manual_dns_budget_seconds: float = 20 * 60
     acme_job_ttl_seconds: float = 30 * 60
     acme_dns_propagation_wait_seconds: float = 15.0
     cloudflare_api_base: str = "https://api.cloudflare.com/client/v4"

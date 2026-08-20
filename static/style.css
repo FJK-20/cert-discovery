@@ -697,3 +697,61 @@ footer {
 #acme-dns-status {
   margin-bottom: 0.75rem;
 }
+
+/* Instruções de validação manual do domínio (TXT a criar) */
+.dns-instructions {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.1rem 1.25rem;
+  margin: 1rem 0;
+  background: var(--bg);
+}
+
+.dns-instructions h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.dns-record-box {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  gap: 0.4rem 0.9rem;
+  margin: 0 0 1rem;
+}
+
+.dns-record-box dt {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.dns-record-box dd {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.dns-record-box code {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.copy-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 0.15rem 0.7rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  /* min-height 44px: mesma régua de alvo de toque do resto do app, sem
+     exceção — mesmo sendo um botão secundário ao lado de texto. */
+  min-height: 44px;
+}
