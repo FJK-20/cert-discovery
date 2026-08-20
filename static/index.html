@@ -8,6 +8,7 @@
 </head>
 <body>
   <div class="top-bar">
+    <button id="security-btn" type="button">🔒 Segurança</button>
     <button id="logout-btn" type="button">Sair</button>
   </div>
   <header>
@@ -231,6 +232,62 @@
         <dt>SANs</dt><dd id="detail-sans"></dd>
         <dt>Observação</dt><dd id="detail-note"></dd>
       </dl>
+    </div>
+  </div>
+
+  <div id="security-modal" class="modal-overlay hidden">
+    <div class="modal-card" role="dialog" aria-modal="true">
+      <button type="button" id="security-modal-close" class="modal-close" aria-label="Fechar">&times;</button>
+      <h2>🔒 Segurança</h2>
+      <p id="security-error" class="hidden error-banner"></p>
+
+      <section id="security-status-view">
+        <p class="hint">
+          Autenticação em dois fatores (MFA):
+          <strong id="security-mfa-state">carregando...</strong>
+        </p>
+        <button type="button" id="security-enable-btn" class="hidden">Ativar MFA</button>
+        <button type="button" id="security-disable-btn" class="hidden">Desativar MFA</button>
+      </section>
+
+      <section id="security-enroll-view" class="hidden">
+        <p class="hint">
+          Escaneie o QR code com um app autenticador (Google Authenticator,
+          Authy, 1Password, etc.) ou digite a chave manualmente. O MFA só
+          fica ativado depois de confirmar um código válido — assim dá pra
+          garantir que o autenticador está configurado certo antes de
+          depender dele no próximo login.
+        </p>
+        <img id="security-mfa-qr" alt="QR code para configurar o MFA" class="qr-code" />
+        <p class="hint">Chave manual: <code id="security-mfa-secret"></code></p>
+        <form id="security-enroll-form">
+          <label for="security-enroll-code">Código de 6 dígitos</label>
+          <input
+            id="security-enroll-code"
+            type="text"
+            inputmode="numeric"
+            pattern="[0-9]{6}"
+            maxlength="6"
+            autocomplete="one-time-code"
+            required
+          />
+          <button type="submit">Confirmar e ativar</button>
+        </form>
+      </section>
+
+      <section id="security-disable-view" class="hidden">
+        <p class="hint">Confirme sua senha para desativar o MFA.</p>
+        <form id="security-disable-form">
+          <label for="security-disable-password">Senha</label>
+          <input
+            id="security-disable-password"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+          <button type="submit">Confirmar e desativar</button>
+        </form>
+      </section>
     </div>
   </div>
 

@@ -15,11 +15,16 @@ Compose para rodar (`--workers 1`, obrigatório — job store é em memória).
 - `app/jobs/manager.py` — orquestra o pipeline de scan (CT → DNS → TLS)
 - `app/discovery/{ctlogs,dns_resolver,tls_probe}.py` — cada etapa do pipeline
 - `app/core/security.py` — validação anti-SSRF (crítico, não afrouxar)
-- `app/auth/` — cadastro de admin + MFA obrigatório + login em 2 etapas
+- `app/auth/` — cadastro de admin + MFA opcional (ativável pelo próprio
+  admin já logado) + login em 1 ou 2 etapas conforme o MFA estar ligado
 - `static/{index,auth}.html` + `app.js`/`auth.js` — frontend
 
 ## Regras importantes
-- MFA é **obrigatório**, sem opção de pular — não adicionar bypass.
+- MFA é **opcional**, desligado por padrão, ativado pelo admin em
+  "🔒 Segurança" (`/api/auth/mfa/*`, tudo atrás de `require_session`). A
+  ativação só vira efetiva depois de confirmar um código TOTP válido
+  (`pending_totp_secret` → `totp_secret` só após `verify_totp` passar) —
+  nunca marcar `mfa_enabled=True` sem essa prova.
 - `tls_probe.py` sempre conecta pelo IP já resolvido e validado (nunca
   deixa a camada TLS re-resolver o hostname) — evita DNS rebinding.
 - Testes são 100% offline/mockados (`httpx.MockTransport`, TLS local

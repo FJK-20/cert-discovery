@@ -5,9 +5,13 @@ MVP). O arquivo sobrevive a reinícios do container via volume Docker (ver
 docker-compose.yml) e é criado com permissão 0600 (contém hash de senha e
 segredo TOTP, ambos sensíveis).
 
-`mfa_enabled=False` indica um cadastro iniciado mas não confirmado: o admin
-só é considerado "pronto para uso" depois de validar um código do
-autenticador — é assim que o MFA é obrigatório, sem opção de pular.
+MFA é opcional, desligado por padrão (`mfa_enabled=False`). O admin pode
+ativar quando quiser, já autenticado, via `/api/auth/mfa/enroll`. Durante
+esse fluxo, `pending_totp_secret` guarda o segredo recém-gerado até o admin
+provar (com um código válido) que configurou o autenticador corretamente —
+só nesse momento ele vira `totp_secret` e `mfa_enabled` passa a `True`. Isso
+evita ativar MFA "no escuro": nunca fica habilitado sem antes confirmar que
+o código funciona.
 """
 
 from __future__ import annotations
@@ -24,8 +28,9 @@ from app.core.config import settings
 class AdminAccount:
     username: str
     password_hash: str
-    totp_secret: str
+    totp_secret: str = ""
     mfa_enabled: bool = False
+    pending_totp_secret: str | None = None
 
 
 class AdminStore:

@@ -292,6 +292,117 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !detailModal.classList.contains("hidden")) {
     closeDetailModal();
   }
+  if (event.key === "Escape" && !securityModal.classList.contains("hidden")) {
+    closeSecurityModal();
+  }
+});
+
+// Segurança / MFA opcional — ativação exige provar (com um código válido)
+// que o autenticador está configurado certo antes de marcar como ativo.
+const securityModal = document.getElementById("security-modal");
+const securityError = document.getElementById("security-error");
+const securityStatusView = document.getElementById("security-status-view");
+const securityEnrollView = document.getElementById("security-enroll-view");
+const securityDisableView = document.getElementById("security-disable-view");
+const securityMfaState = document.getElementById("security-mfa-state");
+const securityEnableBtn = document.getElementById("security-enable-btn");
+const securityDisableBtn = document.getElementById("security-disable-btn");
+
+function showSecurityError(message) {
+  securityError.textContent = message;
+  securityError.classList.remove("hidden");
+}
+
+function clearSecurityError() {
+  securityError.classList.add("hidden");
+}
+
+function showSecurityView(view) {
+  [securityStatusView, securityEnrollView, securityDisableView].forEach((section) =>
+    section.classList.add("hidden")
+  );
+  view.classList.remove("hidden");
+}
+
+async function refreshSecurityStatus() {
+  clearSecurityError();
+  const response = await fetch("/api/auth/mfa/status");
+  const { enabled } = await response.json();
+  securityMfaState.textContent = enabled ? "ativado" : "desativado";
+  securityEnableBtn.classList.toggle("hidden", enabled);
+  securityDisableBtn.classList.toggle("hidden", !enabled);
+  showSecurityView(securityStatusView);
+}
+
+function openSecurityModal() {
+  securityModal.classList.remove("hidden");
+  refreshSecurityStatus();
+}
+
+function closeSecurityModal() {
+  securityModal.classList.add("hidden");
+}
+
+document.getElementById("security-btn").addEventListener("click", openSecurityModal);
+document.getElementById("security-modal-close").addEventListener("click", closeSecurityModal);
+securityModal.addEventListener("click", (event) => {
+  if (event.target === securityModal) closeSecurityModal();
+});
+
+securityEnableBtn.addEventListener("click", async () => {
+  clearSecurityError();
+  try {
+    const response = await fetch("/api/auth/mfa/enroll", { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `Erro ${response.status}`);
+    document.getElementById("security-mfa-qr").src = data.qr_data_uri;
+    document.getElementById("security-mfa-secret").textContent = data.secret;
+    showSecurityView(securityEnrollView);
+  } catch (err) {
+    showSecurityError(err.message);
+  }
+});
+
+securityDisableBtn.addEventListener("click", () => {
+  clearSecurityError();
+  showSecurityView(securityDisableView);
+});
+
+document.getElementById("security-enroll-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  clearSecurityError();
+  const code = document.getElementById("security-enroll-code").value.trim();
+  try {
+    const response = await fetch("/api/auth/mfa/enroll/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `Erro ${response.status}`);
+    await refreshSecurityStatus();
+  } catch (err) {
+    showSecurityError(err.message);
+  }
+});
+
+document.getElementById("security-disable-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  clearSecurityError();
+  const password = document.getElementById("security-disable-password").value;
+  try {
+    const response = await fetch("/api/auth/mfa/disable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `Erro ${response.status}`);
+    document.getElementById("security-disable-password").value = "";
+    await refreshSecurityStatus();
+  } catch (err) {
+    showSecurityError(err.message);
+  }
 });
 
 document.getElementById("logout-btn").addEventListener("click", async () => {
@@ -305,7 +416,11 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
     if (state !== "authenticated") break;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  window.location.href = "/";
+  // location.reload(), não location.href = "/": ver comentário equivalente
+  // em auth.js::navigateToApp() — um reload de verdade é o único jeito
+  // confiável de garantir que o navegador já considerou o cookie
+  // atualizado antes de decidir qual página servir.
+  window.location.reload();
 });
 
 // ACME DNS-01 (emissão/renovação real via Let's Encrypt + Cloudflare)

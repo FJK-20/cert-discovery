@@ -18,9 +18,9 @@
     <section id="setup-register" class="card hidden">
       <h2>Criar conta de administrador</h2>
       <p class="hint">
-        Nenhum admin cadastrado ainda. Crie o usuário e a senha — na próxima
-        etapa você vai configurar a autenticação em dois fatores (MFA), que é
-        obrigatória para concluir o cadastro.
+        Nenhum admin cadastrado ainda. Crie o usuário e a senha. A
+        autenticação em dois fatores (MFA) é opcional — você pode ativá-la
+        quando quiser depois de entrar, em "Segurança".
       </p>
       <form id="register-form">
         <label for="register-username">Usuário</label>
@@ -32,32 +32,7 @@
         <label for="register-password-confirm">Confirmar senha</label>
         <input id="register-password-confirm" type="password" autocomplete="new-password" minlength="8" required />
 
-        <button type="submit">Continuar para configurar o MFA</button>
-      </form>
-    </section>
-
-    <section id="mfa-enroll" class="card hidden">
-      <h2>Configurar autenticação em dois fatores</h2>
-      <p class="hint">
-        Escaneie o QR code com um app autenticador (Google Authenticator,
-        Authy, 1Password, etc.) ou digite a chave manualmente. Depois,
-        confirme com o código de 6 dígitos gerado pelo app. Isso é
-        obrigatório — não é possível concluir o cadastro sem confirmar o MFA.
-      </p>
-      <img id="mfa-qr" alt="QR code para configurar o MFA" class="qr-code" />
-      <p class="hint">Chave manual: <code id="mfa-secret"></code></p>
-      <form id="mfa-enroll-form">
-        <label for="mfa-enroll-code">Código de 6 dígitos</label>
-        <input
-          id="mfa-enroll-code"
-          type="text"
-          inputmode="numeric"
-          pattern="[0-9]{6}"
-          maxlength="6"
-          autocomplete="one-time-code"
-          required
-        />
-        <button type="submit">Confirmar e concluir cadastro</button>
+        <button type="submit">Criar conta</button>
       </form>
     </section>
 
@@ -101,7 +76,7 @@
         restrito, ou configuração de cookies do site). Verifique as
         permissões de cookies para este site e clique abaixo para continuar.
       </p>
-      <a href="/" class="button-link-block">Ir para o app</a>
+      <button type="button" id="manual-continue-btn" class="button-link-block">Ir para o app</button>
     </section>
   </main>
 

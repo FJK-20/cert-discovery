@@ -109,28 +109,36 @@ Abra `http://localhost:8000`.
 
 ## Acesso e autenticação
 
-A aplicação exige uma conta de administrador com **MFA (TOTP) obrigatório**
-— não existe modo "sem login" nem opção de pular o MFA.
+A aplicação exige uma conta de administrador (usuário + senha). A
+autenticação em dois fatores (**MFA/TOTP**) é **opcional**, desligada por
+padrão — o próprio admin ativa quando quiser, já logado, na seção
+"🔒 Segurança".
 
 1. **Primeiro acesso**: nenhum admin cadastrado ainda → tela de cadastro
-   (usuário + senha, mínimo 8 caracteres).
-2. **Configuração do MFA**: logo em seguida, um QR code é exibido para
+   (usuário + senha, mínimo 8 caracteres). Ao concluir, já entra
+   autenticado — sem etapa extra forçada.
+2. **Ativar o MFA (opcional)**: em "🔒 Segurança", um QR code é exibido para
    escanear com um app autenticador (Google Authenticator, Authy, 1Password,
-   etc. — qualquer app compatível com TOTP/RFC 6238). O cadastro só é
-   considerado concluído depois de confirmar um código válido de 6 dígitos;
-   não há como pular essa etapa.
-3. **Acessos seguintes**: login em duas etapas — usuário/senha e, depois,
-   o código do autenticador. A sessão fica em um cookie `httpOnly`.
+   etc. — qualquer app compatível com TOTP/RFC 6238). O MFA só passa a
+   `ativado` depois de confirmar um código válido de 6 dígitos gerado pelo
+   app — isso garante que o autenticador está configurado corretamente antes
+   de depender dele num login futuro. Também é possível desativar a
+   qualquer momento (confirmando a senha atual).
+3. **Acessos seguintes**: login com usuário/senha; se o MFA estiver
+   ativado, uma segunda etapa pede o código do autenticador. A sessão fica
+   em um cookie `httpOnly`.
 4. Toda a API de scan (`/api/scan/*`) exige sessão autenticada — sem login
    válido, retorna 401.
 
-A conta (usuário, hash da senha, segredo TOTP) fica em `data/admin.json`
-(permissão `0600`), persistida via volume Docker entre reinícios — só os
-*jobs* de scan em si são efêmeros (ver [Limitações conhecidas](#limitações-conhecidas)).
+A conta (usuário, hash da senha, segredo TOTP quando o MFA está ativo) fica
+em `data/admin.json` (permissão `0600`), persistida via volume Docker entre
+reinícios — só os *jobs* de scan em si são efêmeros (ver
+[Limitações conhecidas](#limitações-conhecidas)).
 
-**Perdeu acesso ao MFA?** Pare o serviço, apague `data/admin.json` e refaça
-o cadastro. Não há fluxo de recuperação de conta na v1 (single-admin, MVP de
-portfólio) — é um trade-off deliberado, não um recurso faltando por descuido.
+**Perdeu a senha (ou o acesso ao MFA, se estiver ativado)?** Pare o serviço,
+apague `data/admin.json` e refaça o cadastro. Não há fluxo de recuperação
+de conta na v1 (single-admin, MVP de portfólio) — é um trade-off
+deliberado, não um recurso faltando por descuido.
 
 ## Renovação automática (ACME DNS-01)
 
@@ -228,7 +236,9 @@ Sobre a autenticação:
 - senha com hash **scrypt** (`hashlib.scrypt` da stdlib, sem dependência
   extra), nunca armazenada em texto puro;
 - **MFA (TOTP/RFC 6238)** implementado com a stdlib (`hmac`/`hashlib`),
-  obrigatório desde o cadastro — não existe conta sem MFA configurado;
+  opcional e ativável a qualquer momento — a ativação só é confirmada
+  depois de validar um código real gerado pelo autenticador, nunca fica
+  "ligado" sem essa prova;
 - login em duas etapas (senha, depois código) via tokens de curta duração
   em memória — a senha nunca autentica sozinha;
 - rate limiting dedicado nas rotas de login/MFA (`CERTDISC_AUTH_RATE_LIMIT`),

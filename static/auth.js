@@ -1,6 +1,5 @@
 const sections = {
   register: document.getElementById("setup-register"),
-  mfaEnroll: document.getElementById("mfa-enroll"),
   loginPassword: document.getElementById("login-password-section"),
   loginMfa: document.getElementById("login-mfa"),
   manualContinue: document.getElementById("manual-continue"),
@@ -30,13 +29,20 @@ function showManualContinue() {
   sections.manualContinue.classList.remove("hidden");
 }
 
+// Já estamos em "/" (auth.html é servido nesse mesmo caminho) — por isso é
+// `location.reload()`, não `location.href = "/"`. Medido em teste real: uma
+// atribuição a `location.href` com a MESMA URL atual às vezes navega antes
+// do cookie recém-recebido (via fetch) estar comprometido na camada de rede
+// do navegador, fazendo o servidor decidir com base no cookie antigo e
+// devolver auth.html de novo — só um reload de verdade (equivalente a
+// apertar F5) mostrou-se confiável nesse cenário.
 function navigateToApp() {
   if (sessionStorage.getItem(REDIRECT_KEY)) {
     showManualContinue();
     return;
   }
   sessionStorage.setItem(REDIRECT_KEY, "1");
-  window.location.href = "/";
+  window.location.reload();
 }
 
 // Erro aparece acima do card atual, sem esconder o formulário — o usuário
@@ -62,12 +68,6 @@ async function postJson(url, body) {
     throw new Error(data.detail || `Erro ${response.status}`);
   }
   return data;
-}
-
-function renderEnrollment(data) {
-  document.getElementById("mfa-qr").src = data.qr_data_uri;
-  document.getElementById("mfa-secret").textContent = data.secret;
-  showSection("mfaEnroll");
 }
 
 // Confirma (via fetch, sempre same-origin, não afetado por SameSite) que o
@@ -113,11 +113,6 @@ async function init() {
       showSection("register");
       return;
     }
-    if (state === "setup_pending_mfa") {
-      const data = await (await fetch("/api/auth/setup/qr")).json();
-      renderEnrollment(data);
-      return;
-    }
     showSection("loginPassword");
   } catch (err) {
     showError("Não foi possível carregar a página de acesso. Recarregue e tente novamente.");
@@ -135,16 +130,7 @@ document.getElementById("register-form").addEventListener("submit", (event) => {
       throw new Error("As senhas não coincidem.");
     }
 
-    const data = await postJson("/api/auth/setup", { username, password });
-    renderEnrollment(data);
-  });
-});
-
-document.getElementById("mfa-enroll-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  withSubmitLock(event.target, async () => {
-    const code = document.getElementById("mfa-enroll-code").value.trim();
-    await postJson("/api/auth/setup/verify-mfa", { code });
+    await postJson("/api/auth/setup", { username, password });
     await goToApp();
   });
 });
@@ -155,6 +141,10 @@ document.getElementById("login-form").addEventListener("submit", (event) => {
     const username = document.getElementById("login-username").value.trim();
     const password = document.getElementById("login-password").value;
     const data = await postJson("/api/auth/login", { username, password });
+    if (!data.mfa_required) {
+      await goToApp();
+      return;
+    }
     pendingLoginToken = data.pending_token;
     showSection("loginMfa");
   });
@@ -167,6 +157,12 @@ document.getElementById("login-mfa-form").addEventListener("submit", (event) => 
     await postJson("/api/auth/login/verify-mfa", { pending_token: pendingLoginToken, code });
     await goToApp();
   });
+});
+
+document.getElementById("manual-continue-btn").addEventListener("click", () => {
+  // Mesmo motivo do navigateToApp(): um reload de verdade, não navegação
+  // via link/href para a mesma URL.
+  window.location.reload();
 });
 
 init();
