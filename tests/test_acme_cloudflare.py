@@ -14,22 +14,26 @@ def _response(status_code: int, json_body: dict) -> httpx.Response:
     return httpx.Response(status_code, json=json_body, request=httpx.Request("GET", "https://x"))
 
 
-def test_verify_token_true_when_active(monkeypatch):
+def test_verify_token_true_when_zones_call_succeeds(monkeypatch):
     monkeypatch.setattr(
         cloudflare.httpx,
         "request",
-        lambda *a, **k: _response(200, {"success": True, "result": {"status": "active"}}),
+        lambda *a, **k: _response(200, {"success": True, "result": [{"id": "zone123"}]}),
     )
     assert cloudflare.verify_token("tok") is True
 
 
-def test_verify_token_false_when_not_active(monkeypatch):
+def test_verify_token_true_for_account_scoped_token_with_zero_zones(monkeypatch):
+    """Token account-scoped, restrito a uma única zona via política, ainda
+    assim autentica com sucesso em GET /zones (mesmo listando 0 resultados
+    se a zona não bater com o filtro) — isso é o caso que quebrava com
+    /user/tokens/verify, que rejeita todo token account-scoped."""
     monkeypatch.setattr(
         cloudflare.httpx,
         "request",
-        lambda *a, **k: _response(200, {"success": True, "result": {"status": "disabled"}}),
+        lambda *a, **k: _response(200, {"success": True, "result": []}),
     )
-    assert cloudflare.verify_token("tok") is False
+    assert cloudflare.verify_token("tok") is True
 
 
 def test_verify_token_false_on_api_error(monkeypatch):

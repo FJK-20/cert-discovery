@@ -45,13 +45,22 @@ def _request(method: str, path: str, token: str, **kwargs) -> dict:
 
 
 def verify_token(token: str) -> bool:
-    """True se o token for válido e ativo. Não garante escopo de DNS:Edit
-    — isso só se confirma na prática ao tentar criar o registro."""
+    """True se o token conseguir autenticar contra a API da Cloudflare. Não
+    garante escopo de DNS:Edit — isso só se confirma na prática ao tentar
+    criar o registro.
+
+    Usa `GET /zones` em vez de `/user/tokens/verify`: esse endpoint só
+    reconhece tokens criados no namespace "User" (perfil do dashboard) e
+    devolve "Invalid API Token" para tokens account-scoped
+    (`/accounts/{id}/tokens`, o jeito mais recente de criar token com
+    política restrita), mesmo quando o token funciona normalmente para as
+    operações de zona/DNS que essa aplicação realmente precisa.
+    """
     try:
-        payload = _request("GET", "/user/tokens/verify", token)
+        _request("GET", "/zones", token, params={"per_page": 1})
     except CloudflareError:
         return False
-    return payload.get("result", {}).get("status") == "active"
+    return True
 
 
 def find_zone_id(domain: str, token: str) -> str:
