@@ -95,7 +95,8 @@ form label {
 /* :not([type="checkbox"]) em vez de listar tipos um a um — um input novo
    (email, number, etc.) nunca mais escapa dessa regra por esquecimento. */
 form input:not([type="checkbox"]),
-form textarea {
+form textarea,
+form select {
   width: 100%;
   padding: 0.6rem 0.75rem;
   border: 1px solid var(--border);
@@ -192,8 +193,9 @@ button:disabled {
 
 .results-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem 0.75rem;
   font-size: 0.9rem;
 }
 
@@ -569,12 +571,23 @@ footer {
    coluna do campo de visão, quebra o fluxo de leitura). Nenhuma coluna é
    escondida — cada <td> vira um par rótulo/valor via data-label. */
 @media (max-width: 640px) {
+  /* Cabeçalho escondido visualmente (padrão "visually-hidden", mantém
+     acessível a leitor de tela) mas ainda precisa sair do modo de layout
+     de tabela — senão os <th>, com display:table-cell por padrão, tentam
+     se posicionar como se ainda estivessem numa linha de tabela dentro de
+     um container de 1px, e "vazam" para fora da viewport. */
   #results-table thead {
     position: absolute;
+    display: block;
     width: 1px;
     height: 1px;
     overflow: hidden;
     clip: rect(0 0 0 0);
+  }
+
+  #results-table thead tr,
+  #results-table thead th {
+    display: block;
   }
 
   #results-table,
