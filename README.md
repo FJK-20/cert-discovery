@@ -36,7 +36,8 @@ A plataforma automatiza:
 - deduplicação por fingerprint SHA-256;
 - classificação por urgência de expiração;
 - montagem automática de uma fila priorizada de renovação;
-- geração de inventário exportável (CSV/JSON).
+- geração de inventário exportável (CSV/JSON);
+- dashboard visual: cards de resumo clicáveis, gráficos de distribuição por emissor/prazo de expiração, e painel de detalhes completo (SANs, serial, fingerprint) ao clicar em qualquer linha da tabela.
 
 ## Como funciona
 
