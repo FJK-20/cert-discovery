@@ -1,3 +1,10 @@
+/* --ok/--warning/--critical/--expired: cor de TEXTO sobre --bg (ex:
+   .stat-count) — precisa de tom diferente por tema pra manter 4.5:1 (WCAG
+   AA) contra um fundo claro vs escuro. --badge-*: fundo de badge com texto
+   branco por cima — não depende do tema, só precisa passar 4.5:1 contra
+   branco. As duas listas foram medidas (fórmula de luminância relativa
+   WCAG 2.1), não escolhidas visualmente — não "ajustar a cor um pouco" sem
+   recalcular o contraste. */
 :root {
   --bg: #f5f7fa;
   --card-bg: #ffffff;
@@ -5,11 +12,16 @@
   --muted: #5b6472;
   --border: #e1e5ea;
   --brand: #2563eb;
-  --ok: #16a34a;
-  --warning: #d97706;
-  --critical: #ea580c;
+  --ok: #12873d;
+  --warning: #b26205;
+  --critical: #cc4d0a;
   --expired: #dc2626;
   --neutral: #6b7280;
+  --badge-ok: #12873d;
+  --badge-warning: #b26205;
+  --badge-critical: #cc4d0a;
+  --badge-expired: #dc2626;
+  --badge-neutral: #6b7280;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -20,6 +32,10 @@
     --muted: #9aa4b2;
     --border: #2a3242;
     --brand: #5b8def;
+    --ok: #16a34a;
+    --warning: #d97706;
+    --critical: #ea580c;
+    --expired: #e14747;
   }
 }
 
@@ -271,10 +287,10 @@ td.note-cell {
   color: white;
 }
 
-.badge-expired { background: var(--expired); }
-.badge-critical { background: var(--critical); }
-.badge-warning { background: var(--warning); }
-.badge-ok { background: var(--ok); }
+.badge-expired { background: var(--badge-expired); }
+.badge-critical { background: var(--badge-critical); }
+.badge-warning { background: var(--badge-warning); }
+.badge-ok { background: var(--badge-ok); }
 
 /* Mesma paleta status->cor dos badges acima, aplicada ao texto dos
    stat-cards em vez do fundo — mantenha as duas listas em sincronia. */
@@ -285,7 +301,7 @@ td.note-cell {
 
 .badge-wildcard,
 .badge-unresolved,
-.badge-ct_only { background: var(--neutral); }
+.badge-ct_only { background: var(--badge-neutral); }
 
 .error {
   border-color: var(--expired);
@@ -384,6 +400,9 @@ footer {
   color: var(--muted);
   border: 1px solid var(--border);
   padding: 0.4rem 0.9rem;
+  /* min-height 44px: recomendação da Apple HIG / Material Design pra alvo
+     de toque — abaixo disso, mede-se mais erro de toque (lei de Fitts). */
+  min-height: 44px;
   font-size: 0.85rem;
   font-weight: 500;
 }
@@ -503,7 +522,14 @@ footer {
   color: var(--muted);
   font-size: 1.5rem;
   line-height: 1;
-  padding: 0.25rem 0.5rem;
+  /* min 44x44px de alvo de toque (Apple HIG / Material Design), com o
+     glifo centralizado em vez de só crescer o padding assimetricamente. */
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   cursor: pointer;
 }
 
@@ -536,6 +562,61 @@ footer {
 
 #results-table tbody tr:hover {
   background: var(--bg);
+}
+
+/* Tabela de resultados como pilha de cartões abaixo de 640px: rolar de
+   lado pra ler dado tabular é um anti-padrão mobile bem documentado (some
+   coluna do campo de visão, quebra o fluxo de leitura). Nenhuma coluna é
+   escondida — cada <td> vira um par rótulo/valor via data-label. */
+@media (max-width: 640px) {
+  #results-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  #results-table,
+  #results-table tbody,
+  #results-table tr,
+  #results-table td {
+    display: block;
+    width: 100%;
+  }
+
+  #results-table tr {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 0.9rem;
+    margin-bottom: 0.75rem;
+  }
+
+  #results-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    white-space: normal;
+    border-bottom: 1px solid var(--border);
+    padding: 0.45rem 0;
+  }
+
+  #results-table td:last-child {
+    border-bottom: none;
+  }
+
+  #results-table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    font-size: 0.78rem;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+
+  #results-table td.note-cell {
+    max-width: none;
+  }
 }
 
 /* Seção ACME */

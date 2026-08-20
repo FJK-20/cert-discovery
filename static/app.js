@@ -56,9 +56,23 @@ function showError(message) {
   errorMessage.textContent = message;
 }
 
+// Glifo por status, redundante com a cor — daltonismo atinge ~8% dos
+// homens, então o status nunca deveria depender só da cor do badge pra ser
+// lido.
+const STATUS_GLYPHS = {
+  expired: "✕",
+  critical: "▲",
+  warning: "◆",
+  ok: "✓",
+  wildcard: "•",
+  unresolved: "•",
+  ct_only: "•",
+};
+
 function badgeFor(status) {
   const label = STATUS_LABELS[status] || status;
-  return `<span class="badge badge-${status}">${label}</span>`;
+  const glyph = STATUS_GLYPHS[status] || "";
+  return `<span class="badge badge-${status}"><span aria-hidden="true">${glyph}</span> ${label}</span>`;
 }
 
 function renderSummaryStats() {
@@ -90,14 +104,17 @@ function renderTable() {
       const daysLeft = record.days_until_expiry ?? "—";
       const origin = record.origin === "live" ? "Handshake ao vivo" : "CT log";
       const note = record.note ? record.note : "";
+      // data-label alimenta o CSS que transforma cada <td> num par
+      // rótulo/valor quando a tabela vira cartão empilhado em telas
+      // estreitas (ver style.css, breakpoint de 640px).
       return `<tr data-row-index="${index}">
-        <td>${badgeFor(record.status)}</td>
-        <td>${escapeHtml(record.host)}</td>
-        <td>${escapeHtml(record.issuer || "—")}</td>
-        <td>${expiresAt}</td>
-        <td>${daysLeft}</td>
-        <td>${origin}</td>
-        <td class="note-cell">${escapeHtml(note)}</td>
+        <td data-label="Status">${badgeFor(record.status)}</td>
+        <td data-label="Host">${escapeHtml(record.host)}</td>
+        <td data-label="Emissor">${escapeHtml(record.issuer || "—")}</td>
+        <td data-label="Expira em">${expiresAt}</td>
+        <td data-label="Dias restantes">${daysLeft}</td>
+        <td data-label="Origem">${origin}</td>
+        <td data-label="Observação" class="note-cell">${escapeHtml(note)}</td>
       </tr>`;
     })
     .join("");
