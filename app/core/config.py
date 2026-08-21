@@ -58,5 +58,9 @@ class Settings:
     acme_dns_propagation_wait_seconds: float = 15.0
     cloudflare_api_base: str = "https://api.cloudflare.com/client/v4"
 
+    # Agendador de renovação — verifica periodicamente certificados
+    # entrando na janela de renovação (1/3 da validade restante).
+    scheduler_check_interval_seconds: float = 6 * 60 * 60
+
 
 settings = Settings()

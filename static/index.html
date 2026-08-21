@@ -305,11 +305,18 @@
     <section class="card">
       <h2>🔁 Renovação</h2>
       <p class="hint">
-        Certificados emitidos nesta sessão do servidor. Agendamento
-        automático e histórico persistente entre reinícios ainda não
-        existem — cada emissão hoje é disparada manualmente na tela
-        <a class="button-link" href="#emissao">Emissão</a>.
+        Certificados emitidos via ACME ou CSR manual (tela
+        <a class="button-link" href="#emissao">Emissão</a>) persistem em
+        disco. Um verificador roda em segundo plano e tenta renovar
+        sozinho os certificados emitidos em modo automático (Cloudflare ou
+        delegação CNAME já configurada) a partir de 1/3 da validade
+        restante; certificados manuais só recebem uma notificação — quem
+        exige uma pessoa continua exigindo.
       </p>
+      <p id="scheduler-status" class="hint"></p>
+      <button type="button" id="scheduler-check-now-btn">Verificar agora</button>
+      <p id="scheduler-check-message" class="hint"></p>
+      <h3>Certificados</h3>
       <div id="acme-certs-list" class="hint">Nenhum certificado emitido ainda.</div>
     </section>
     </div>
@@ -366,6 +373,57 @@
           <button type="submit">Confirmar e desativar</button>
         </form>
       </section>
+    </section>
+
+    <section class="card">
+      <h2>🔔 Notificações</h2>
+      <p class="hint">
+        Webhook e/ou e-mail (SMTP) disparados quando uma renovação
+        automática falha, ou quando um certificado que exige confirmação
+        manual está entrando na janela de renovação. Os dois são
+        opcionais e independentes — configure um, os dois, ou nenhum.
+      </p>
+      <div id="notify-status" class="hint"></div>
+      <details id="notify-form-details">
+        <summary>Configurar webhook / e-mail</summary>
+        <form id="notify-form">
+          <label for="notify-webhook-url">URL do webhook (opcional)</label>
+          <input
+            id="notify-webhook-url"
+            type="text"
+            autocomplete="off"
+            placeholder="https://exemplo.com/webhook"
+          />
+
+          <label for="notify-smtp-host">Servidor SMTP (opcional)</label>
+          <input id="notify-smtp-host" type="text" autocomplete="off" placeholder="smtp.exemplo.com" />
+
+          <label for="notify-smtp-port">Porta SMTP</label>
+          <input id="notify-smtp-port" type="number" value="587" min="1" max="65535" />
+
+          <label class="consent">
+            <input id="notify-smtp-tls" type="checkbox" checked />
+            Usar STARTTLS
+          </label>
+
+          <label for="notify-smtp-username">Usuário SMTP (opcional)</label>
+          <input id="notify-smtp-username" type="text" autocomplete="off" />
+
+          <label for="notify-smtp-password">Senha SMTP (opcional)</label>
+          <input id="notify-smtp-password" type="password" autocomplete="off" />
+
+          <label for="notify-smtp-from">Remetente (From)</label>
+          <input id="notify-smtp-from" type="text" autocomplete="off" placeholder="alertas@exemplo.com" />
+
+          <label for="notify-smtp-to">Destinatário (To)</label>
+          <input id="notify-smtp-to" type="text" autocomplete="off" placeholder="voce@exemplo.com" />
+
+          <button type="submit">Salvar</button>
+        </form>
+      </details>
+      <button type="button" id="notify-test-btn">Enviar notificação de teste</button>
+      <p id="notify-test-message" class="hint"></p>
+      <div id="notify-error" class="hidden error-banner"></div>
     </section>
     </div>
   </main>

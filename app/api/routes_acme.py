@@ -161,6 +161,7 @@ async def list_certificates() -> list[dict]:
             "environment": c.environment,
             "issued_at": c.issued_at,
             "not_after": c.not_after,
+            "dns_mode": c.dns_mode,
         }
         for c in acme_store.list_certificates()
     ]

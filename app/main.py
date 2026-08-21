@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.acme.scheduler import scheduler
 from app.api.routes_acme import router as acme_router
 from app.api.routes_csr import router as csr_router
+from app.api.routes_notify import router as notify_router
 from app.api.routes_scan import router as scan_router
 from app.auth.dependencies import SESSION_COOKIE_NAME, get_authenticated_username
 from app.auth.routes_auth import router as auth_router
@@ -15,14 +19,25 @@ from app.auth.routes_auth import router as auth_router
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    # Verifica periodicamente certificados entrando na janela de
+    # renovação — ver app/acme/scheduler.py pra regra de negócio completa.
+    scheduler.start()
+    yield
+
+
 app = FastAPI(
     title="Certificate Discovery Platform",
     description="Descoberta e inventário de certificados TLS via CT logs + handshake ao vivo.",
+    lifespan=_lifespan,
 )
 app.include_router(auth_router)
 app.include_router(scan_router)
 app.include_router(acme_router)
 app.include_router(csr_router)
+app.include_router(notify_router)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 

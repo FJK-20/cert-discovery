@@ -553,15 +553,20 @@ async function refreshAcmeCertificates() {
       acmeCertsList.innerHTML = "Nenhum certificado emitido ainda.";
       return;
     }
+    const AUTO_RENEWABLE = new Set(["cloudflare", "cname_delegation"]);
     acmeCertsList.innerHTML = certs
       .map((cert) => {
         const issuedAt = formatDateTime(cert.issued_at);
         const notAfter = formatDateTime(cert.not_after);
+        const renewalNote = AUTO_RENEWABLE.has(cert.dns_mode)
+          ? "renovação automática"
+          : "renovação manual";
         return `<div class="acme-cert-row">
           <strong>${escapeHtml(cert.domain)}</strong>
           <span>${escapeHtml(cert.environment)}</span>
           <span>emitido em ${issuedAt}</span>
           <span>expira em ${notAfter}</span>
+          <span>${renewalNote}</span>
           <a class="button-link" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/fullchain.pem">certificado</a>
           <a class="button-link" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/privkey.pem">chave privada</a>
         </div>`;
@@ -821,6 +826,142 @@ csrPendingList.addEventListener("submit", async (event) => {
 });
 
 refreshPendingCsrs();
+
+// Notificações (webhook/e-mail) — configuráveis em Configurações,
+// disparadas pelo agendador de renovação (ver seção abaixo).
+const notifyStatus = document.getElementById("notify-status");
+const notifyFormDetails = document.getElementById("notify-form-details");
+const notifyForm = document.getElementById("notify-form");
+const notifyError = document.getElementById("notify-error");
+const notifyTestBtn = document.getElementById("notify-test-btn");
+const notifyTestMessage = document.getElementById("notify-test-message");
+
+function showNotifyError(message) {
+  notifyError.textContent = message;
+  notifyError.classList.remove("hidden");
+}
+
+function hideNotifyError() {
+  notifyError.classList.add("hidden");
+  notifyError.textContent = "";
+}
+
+async function refreshNotifyStatus() {
+  try {
+    const response = await fetch("/api/notifications/config");
+    if (!response.ok) return;
+    const config = await response.json();
+    const parts = [];
+    parts.push(config.webhook_configured ? "webhook configurado" : "webhook não configurado");
+    parts.push(config.email_configured ? `e-mail configurado (${escapeHtml(config.smtp_host)})` : "e-mail não configurado");
+    notifyStatus.textContent = parts.join(" · ");
+    notifyFormDetails.open = !config.webhook_configured && !config.email_configured;
+
+    if (config.smtp_host) document.getElementById("notify-smtp-host").value = config.smtp_host;
+    if (config.smtp_port) document.getElementById("notify-smtp-port").value = config.smtp_port;
+    document.getElementById("notify-smtp-tls").checked = config.smtp_use_tls !== false;
+    if (config.smtp_username) document.getElementById("notify-smtp-username").value = config.smtp_username;
+    if (config.smtp_from) document.getElementById("notify-smtp-from").value = config.smtp_from;
+    if (config.smtp_to) document.getElementById("notify-smtp-to").value = config.smtp_to;
+  } catch {
+    notifyStatus.textContent = "";
+  }
+}
+
+notifyForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  hideNotifyError();
+  const submitBtn = notifyForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  const payload = {
+    webhook_url: document.getElementById("notify-webhook-url").value.trim() || null,
+    smtp_host: document.getElementById("notify-smtp-host").value.trim() || null,
+    smtp_port: Number(document.getElementById("notify-smtp-port").value) || 587,
+    smtp_use_tls: document.getElementById("notify-smtp-tls").checked,
+    smtp_username: document.getElementById("notify-smtp-username").value.trim() || null,
+    smtp_password: document.getElementById("notify-smtp-password").value || null,
+    smtp_from: document.getElementById("notify-smtp-from").value.trim() || null,
+    smtp_to: document.getElementById("notify-smtp-to").value.trim() || null,
+  };
+  try {
+    const response = await fetch("/api/notifications/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Erro ${response.status}`);
+    }
+    document.getElementById("notify-webhook-url").value = "";
+    document.getElementById("notify-smtp-password").value = "";
+    await refreshNotifyStatus();
+  } catch (err) {
+    showNotifyError(err.message || "Não foi possível salvar a configuração.");
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+notifyTestBtn.addEventListener("click", async () => {
+  hideNotifyError();
+  notifyTestMessage.textContent = "Enviando...";
+  notifyTestBtn.disabled = true;
+  try {
+    const response = await fetch("/api/notifications/test", { method: "POST" });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.detail || `Erro ${response.status}`);
+    notifyTestMessage.textContent = `Enviado via: ${body.sent_via.join(", ")}.`;
+  } catch (err) {
+    notifyTestMessage.textContent = "";
+    showNotifyError(err.message || "Não foi possível enviar a notificação de teste.");
+  } finally {
+    notifyTestBtn.disabled = false;
+  }
+});
+
+refreshNotifyStatus();
+
+// Agendador de renovação — verifica em segundo plano e também sob demanda
+// (botão "Verificar agora" na tela de Renovação).
+const schedulerStatusEl = document.getElementById("scheduler-status");
+const schedulerCheckNowBtn = document.getElementById("scheduler-check-now-btn");
+const schedulerCheckMessage = document.getElementById("scheduler-check-message");
+
+async function refreshSchedulerStatus() {
+  try {
+    const response = await fetch("/api/scheduler/status");
+    if (!response.ok) return;
+    const status = await response.json();
+    const intervalHours = Math.round(status.check_interval_seconds / 3600);
+    schedulerStatusEl.textContent = status.last_check_at
+      ? `Última verificação: ${formatDateTime(status.last_check_at)} (a cada ~${intervalHours}h).`
+      : `Ainda não verificou desde que o servidor subiu (roda a cada ~${intervalHours}h).`;
+  } catch {
+    schedulerStatusEl.textContent = "";
+  }
+}
+
+schedulerCheckNowBtn.addEventListener("click", async () => {
+  schedulerCheckNowBtn.disabled = true;
+  schedulerCheckMessage.textContent = "Verificando...";
+  try {
+    const response = await fetch("/api/scheduler/check-now", { method: "POST" });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.detail || `Erro ${response.status}`);
+    schedulerCheckMessage.textContent = body.results.length
+      ? `${body.results.length} certificado(s) processado(s): ${body.results.map((r) => `${r.domain} (${r.action})`).join(", ")}.`
+      : "Nenhum certificado entrando na janela de renovação agora.";
+    await refreshSchedulerStatus();
+    await refreshAcmeCertificates();
+  } catch (err) {
+    schedulerCheckMessage.textContent = err.message || "Não foi possível verificar agora.";
+  } finally {
+    schedulerCheckNowBtn.disabled = false;
+  }
+});
+
+refreshSchedulerStatus();
 
 // Rota inicial — por último, depois que toda função/const que uma tela
 // pode precisar (ex: refreshSecurityStatus) já foi definida.

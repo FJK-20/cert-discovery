@@ -43,6 +43,12 @@ class IssuedCertificate:
     not_after: str | None
     fullchain_pem: str
     private_key_pem: str
+    # None pros certificados manuais via CSR (não tem como renovar sozinho
+    # — precisa de uma pessoa levando um CSR novo pra CA de novo). Pros
+    # emitidos via ACME, guarda o dns_mode usado (ver app.acme.models) —
+    # é o que o agendador de renovação (app/acme/scheduler.py) consulta
+    # pra saber se pode tentar renovar sem intervenção humana.
+    dns_mode: str | None = None
 
 
 def _write_json(path: Path, data: dict) -> None:

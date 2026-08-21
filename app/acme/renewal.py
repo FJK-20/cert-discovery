@@ -157,6 +157,7 @@ class AcmeRenewalManager:
             not_after=result.not_after.isoformat() if result.not_after else None,
             fullchain_pem=result.fullchain_pem,
             private_key_pem=result.private_key_pem,
+            dns_mode=job.dns_mode.value,
         )
         self._store.save_certificate(cert)
         job.certificate_id = cert.id
