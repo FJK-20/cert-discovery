@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.acme.scheduler import scheduler
-from app.auth.dependencies import require_session
+from app.audit.log import audit_log
+from app.auth.dependencies import require_admin, require_session
 from app.core.ratelimit import SlidingWindowRateLimiter
 from app.notify import notifier
 from app.notify.store import NotificationConfig, notification_store
@@ -65,14 +66,17 @@ async def get_notification_config() -> dict:
 
 
 @router.post("/notifications/config")
-async def save_notification_config(payload: NotificationConfigRequest) -> dict:
+async def save_notification_config(
+    payload: NotificationConfigRequest, username: str = Depends(require_admin)
+) -> dict:
     config = NotificationConfig(**payload.model_dump())
     notification_store.save(config)
+    audit_log.record(username=username, action="notification_config_saved")
     return _redacted(config)
 
 
 @router.post("/notifications/test")
-async def send_test_notification(request: Request) -> dict:
+async def send_test_notification(request: Request, _admin: str = Depends(require_admin)) -> dict:
     if not _test_rate_limiter.allow(_client_key(request)):
         raise HTTPException(status_code=429, detail="Muitos testes — aguarde alguns minutos.")
     config = notification_store.load()
@@ -103,7 +107,7 @@ async def scheduler_status() -> dict:
 
 
 @router.post("/scheduler/check-now")
-async def scheduler_check_now(request: Request) -> dict:
+async def scheduler_check_now(request: Request, _admin: str = Depends(require_admin)) -> dict:
     if not _check_now_rate_limiter.allow(_client_key(request)):
         raise HTTPException(status_code=429, detail="Muitas verificações — aguarde alguns minutos.")
     results = await scheduler.check_once()

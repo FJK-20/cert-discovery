@@ -1,6 +1,7 @@
 # Certificate Discovery Platform
 
 ![CI](https://github.com/FJK-20/cert-discovery/actions/workflows/ci.yml/badge.svg)
+[![GHCR](https://img.shields.io/badge/ghcr.io-cert--discovery-blue?logo=docker)](https://github.com/FJK-20/cert-discovery/pkgs/container/cert-discovery)
 
 Plataforma open source para descoberta e inventário de certificados TLS.
 
@@ -107,16 +108,52 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 
 Abra `http://localhost:8000`.
 
+### Opção 3 — imagem publicada (sem clonar o repositório)
+
+Toda vez que `master` recebe um push, uma imagem é publicada automaticamente
+no GitHub Container Registry:
+
+```bash
+docker run -p 8000:8000 -v cert-discovery-data:/app/data ghcr.io/fjk-20/cert-discovery:latest
+```
+
+O volume nomeado (`cert-discovery-data`) é o que persiste usuários,
+certificados e histórico entre execuções — sem ele, tudo se perde quando o
+container para.
+
+## Deploy com um clique
+
+Duas plataformas com camada gratuita, ambas detectam o `Dockerfile`
+automaticamente:
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/github/FJK-20/cert-discovery)
+&nbsp;
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/FJK-20/cert-discovery)
+
+Depois do primeiro deploy, defina `CERTDISC_COOKIE_SECURE=true` (a
+plataforma termina TLS na borda) e configure um volume/disco persistente
+apontando pra `/app/data` — sem isso, cada novo deploy reseta usuários e
+certificados.
+
+> **Nota sobre persistência**: disco persistente é um recurso pago em
+> algumas plataformas (o plano gratuito do Render, por exemplo, não inclui
+> disco — os dados não sobrevivem a um redeploy nesse plano). Pra uma demo
+> rápida isso não importa; pra um uso real, use um plano com disco ou rode
+> via Docker Compose num servidor próprio (ver Opção 1 acima).
+
 ## Acesso e autenticação
 
-A aplicação exige uma conta de administrador (usuário + senha). A
-autenticação em dois fatores (**MFA/TOTP**) é **opcional**, desligada por
-padrão — o próprio admin ativa quando quiser, já logado, na seção
+A aplicação exige uma conta autenticada (usuário + senha) e suporta
+múltiplos usuários (ver [Usuários, papéis e auditoria](#usuários-papéis-e-auditoria)).
+A autenticação em dois fatores (**MFA/TOTP**) é **opcional**, desligada por
+padrão — cada usuário ativa a própria quando quiser, já logado, na seção
 "🔒 Segurança".
 
-1. **Primeiro acesso**: nenhum admin cadastrado ainda → tela de cadastro
-   (usuário + senha, mínimo 8 caracteres). Ao concluir, já entra
-   autenticado — sem etapa extra forçada.
+1. **Primeiro acesso**: ninguém cadastrado ainda → tela de cadastro
+   (usuário + senha, mínimo 8 caracteres), que sempre cria o primeiro
+   **admin**. Ao concluir, já entra autenticado — sem etapa extra forçada.
+   Depois disso, novas contas só são criadas por um admin já logado, não
+   por autocadastro aberto.
 2. **Ativar o MFA (opcional)**: em "🔒 Segurança", um QR code é exibido para
    escanear com um app autenticador (Google Authenticator, Authy, 1Password,
    etc. — qualquer app compatível com TOTP/RFC 6238). O MFA só passa a
@@ -127,18 +164,19 @@ padrão — o próprio admin ativa quando quiser, já logado, na seção
 3. **Acessos seguintes**: login com usuário/senha; se o MFA estiver
    ativado, uma segunda etapa pede o código do autenticador. A sessão fica
    em um cookie `httpOnly`.
-4. Toda a API de scan (`/api/scan/*`) exige sessão autenticada — sem login
-   válido, retorna 401.
+4. Toda a API exige sessão autenticada — sem login válido, retorna 401; sem
+   o papel certo (rota de escrita, papel `leitor`), retorna 403.
 
-A conta (usuário, hash da senha, segredo TOTP quando o MFA está ativo) fica
-em `data/admin.json` (permissão `0600`), persistida via volume Docker entre
-reinícios — só os *jobs* de scan em si são efêmeros (ver
-[Limitações conhecidas](#limitações-conhecidas)).
+As contas (usuário, papel, hash da senha, segredo TOTP quando o MFA está
+ativo) ficam em `data/admin.json` (permissão `0600`), persistidas via
+volume Docker entre reinícios.
 
-**Perdeu a senha (ou o acesso ao MFA, se estiver ativado)?** Pare o serviço,
-apague `data/admin.json` e refaça o cadastro. Não há fluxo de recuperação
-de conta na v1 (single-admin, MVP de portfólio) — é um trade-off
-deliberado, não um recurso faltando por descuido.
+**Perdeu a senha do único admin (ou o acesso ao MFA dele)?** Pare o
+serviço, apague `data/admin.json` e refaça o cadastro. Não há fluxo de
+recuperação de conta por e-mail — trade-off deliberado de um MVP de
+portfólio, não um recurso faltando por descuido. Se você tem mais de um
+admin cadastrado, qualquer um dos outros pode remover a conta travada e
+criar uma nova.
 
 ## Emissão via ACME (DNS-01)
 
@@ -222,20 +260,91 @@ mesmo solicita.
 - O token da Cloudflare (quando usado), a chave da conta ACME e as chaves
   privadas dos certificados emitidos ficam em `data/` com permissão `0600`
   — mesma disciplina do restante do projeto (veja [Segurança](#segurança)).
-- Não há renovação automática agendada (cron) nem alerta de expiração ainda
-  — a emissão é sempre disparada manualmente pela interface. É a próxima
-  fase do [roadmap](#roadmap--ideias-futuras).
+- Renovação automática e alerta de expiração existem — veja
+  [Renovação automática e notificações](#renovação-automática-e-notificações)
+  logo abaixo.
+
+## Certificado manual (CSR)
+
+Nem toda CA fala ACME — CA interna de empresa, certificado comprado
+manualmente de um fornecedor. Pra esses casos, a tela de Emissão também
+gera um CSR (Certificate Signing Request) tradicional:
+
+1. Informe os domínios (o primeiro vira o Common Name, os demais entram
+   como SAN). A aplicação gera a chave privada e o CSR localmente — a chave
+   **nunca sai do servidor**, nem nesse fluxo.
+2. Baixe o CSR e leve pra CA escolhida.
+3. Quando o certificado assinado voltar, cole o PEM na tela. A aplicação
+   confirma que a chave pública do certificado corresponde à chave privada
+   gerada no passo 1 antes de aceitar — um certificado colado errado (de
+   outra CSR, por exemplo) é rejeitado com uma mensagem clara, não salvo
+   silenciosamente.
+4. O certificado concluído entra na mesma lista dos emitidos via ACME (tela
+   de Renovação), com o modo de renovação marcado como manual — a
+   automação da seção abaixo nunca tenta renová-lo sozinha, só notifica
+   quando ele entra na janela de expiração.
+
+## Renovação automática e notificações
+
+Um verificador roda em segundo plano (padrão a cada 6h, configurável) e
+também pode ser disparado sob demanda ("Verificar agora" na tela de
+Renovação). Regra de negócio: um certificado entra na janela de renovação
+quando passa de **1/3 da validade restante** — para um certificado de 90
+dias (padrão Let's Encrypt), isso é 30 dias antes de expirar, a mesma janela
+que a própria CA recomenda.
+
+O que acontece depois depende de como o certificado foi emitido:
+
+- **Automático via Cloudflare ou delegação CNAME**: o verificador tenta
+  renovar sozinho, sem intervenção humana. Se falhar, tenta de novo com
+  espera exponencial (10min, 20min, 40min...) até um limite de 5 tentativas
+  — depois disso, para de tentar sozinho e passa a só notificar, pra não
+  ficar consumindo o rate limit da CA numa causa que precisa de um humano
+  olhando.
+- **Manual (TXT por conta própria) ou CSR manual**: nunca é renovado sem
+  alguém agir — só dispara uma notificação avisando que está na janela.
+
+Cada tentativa (manual ou automática) fica registrada numa fila com estado
+visível na tela de Renovação — domínio, modo, gatilho, número da tentativa,
+resultado, erro — que sobrevive a um restart do serviço.
+
+Notificações (webhook genérico + e-mail via SMTP, ambos opcionais e
+independentes) são configuráveis em Configurações, com um botão de teste
+antes de confiar na configuração.
+
+## Usuários, papéis e auditoria
+
+A aplicação suporta múltiplos usuários com dois papéis:
+
+- **admin** — acesso completo: rodar scans, emitir/renovar certificados,
+  mudar configuração (DNS, notificações), gerenciar outros usuários.
+- **leitor** — só visualização: inventário, certificados, histórico de
+  scans e de renovações. Toda rota de escrita (e o download da chave
+  privada de um certificado, mesmo não sendo tecnicamente "escrita")
+  devolve 403 pra esse papel — a interface já esconde os controles
+  correspondentes, mas a garantia real é no backend, não só na UI.
+
+O primeiro usuário cadastrado é sempre admin (não existe autocadastro
+aberto depois disso — só um admin já autenticado cria novas contas, em
+Configurações → Usuários). Não é possível remover a si mesmo nem remover o
+último admin restante.
+
+Toda ação relevante (usuário criado/removido, MFA ativado/desativado,
+credencial de DNS salva, configuração de notificação alterada, scan/CSR
+iniciado) fica num log de auditoria **append-only** — quem fez, o quê e
+quando — visível só para admins em Configurações → Log de auditoria.
 
 ## Variáveis de ambiente
 
-| Variável                     | Padrão | Descrição                                            |
-|-------------------------------|--------|-------------------------------------------------------|
-| `CERTDISC_MAX_HOSTS`          | `400`  | Máximo de hosts investigados por scan                 |
-| `CERTDISC_MAX_CONCURRENCY`    | `30`   | Handshakes TLS simultâneos                            |
-| `CERTDISC_RATE_LIMIT_RPM`     | `6`    | Limite de scans por minuto, por IP do requisitante    |
-| `CERTDISC_DATA_DIR`           | `data` | Diretório onde `admin.json` é persistido              |
-| `CERTDISC_COOKIE_SECURE`      | `false`| Marca o cookie de sessão como `Secure` (ative atrás de HTTPS) |
-| `CERTDISC_AUTH_RATE_LIMIT`    | `8`    | Limite de tentativas de login/MFA a cada 5 min, por IP |
+| Variável                              | Padrão | Descrição                                            |
+|----------------------------------------|--------|-------------------------------------------------------|
+| `CERTDISC_MAX_HOSTS`                   | `400`  | Máximo de hosts investigados por scan                 |
+| `CERTDISC_MAX_CONCURRENCY`             | `30`   | Handshakes TLS simultâneos                            |
+| `CERTDISC_RATE_LIMIT_RPM`              | `6`    | Limite de scans por minuto, por IP do requisitante    |
+| `CERTDISC_DATA_DIR`                    | `data` | Diretório onde usuários/certificados/histórico são persistidos |
+| `CERTDISC_COOKIE_SECURE`               | `false`| Marca o cookie de sessão como `Secure` (ative atrás de HTTPS) |
+| `CERTDISC_AUTH_RATE_LIMIT`             | `8`    | Limite de tentativas de login/MFA a cada 5 min, por IP |
+| `CERTDISC_SCHEDULER_INTERVAL_SECONDS`  | `21600` (6h) | Intervalo do verificador de renovação automática |
 
 ## Segurança
 
@@ -273,12 +382,14 @@ Sobre a autenticação:
 
 ## Limitações conhecidas
 
-- **Jobs de scan são efêmeros**: vivem em memória de um único processo (por
-  isso `--workers 1` é obrigatório). Reiniciar o serviço descarta scans em
-  andamento — escolha deliberada de escopo, não uma limitação a corrigir. A
-  conta de admin **não** é afetada por isso (fica persistida em disco).
-- **Single-admin**: não é um sistema multiusuário — está fora do escopo
-  deste MVP.
+- **Um scan em andamento é efêmero**: vive em memória de um único processo
+  (por isso `--workers 1` é obrigatório) — reiniciar o serviço descarta um
+  scan que estava rodando naquele momento. O *resultado* de scans já
+  concluídos, porém, é persistido (SQLite) e sobrevive a um restart — só o
+  progresso de um scan ativo é que se perde.
+- **Fila de renovação não tem retry configurável por certificado**: o
+  limite de tentativas automáticas (5) e a curva de backoff são globais,
+  não ajustáveis por domínio na interface.
 - **Dependência do crt.sh**: é um serviço público mantido por terceiros,
   conhecido por ser lento/instável sob carga. A aplicação já lida com isso
   (timeout, retry com backoff, detecção de resposta HTML de erro), mas se o
@@ -304,8 +415,11 @@ teste depende de rede externa.
 
 - Expansão opcional de wildcards por labels comuns.
 - Suporte a outras fontes de CT log além do crt.sh (redundância).
-- Histórico de scans (com persistência opcional).
-- Notificação (e-mail/webhook) quando um certificado entra na fila crítica.
+- Segundo provedor de DNS além da Cloudflare (Route53 ou RFC2136 genérico)
+  — provaria que a interface interna já é plugável de verdade, hoje só
+  falta uma segunda implementação real pra testar.
+- Multi-CA via ACME (ZeroSSL), que exige credenciais de External Account
+  Binding além do protocolo ACME padrão.
 
 ## Licença
 

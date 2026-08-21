@@ -569,10 +569,11 @@ async function refreshAcmeCertificates() {
           <span>expira em ${notAfter}</span>
           <span>${renewalNote}</span>
           <a class="button-link" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/fullchain.pem">certificado</a>
-          <a class="button-link" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/privkey.pem">chave privada</a>
+          <a class="button-link" data-requires-admin href="/api/acme/certificates/${encodeURIComponent(cert.id)}/privkey.pem">chave privada</a>
         </div>`;
       })
       .join("");
+    applyRoleVisibility();
   } catch {
     // mantém a lista anterior se o fetch falhar
   }
@@ -748,9 +749,9 @@ async function refreshPendingCsrs() {
           <p class="hint">Gerado em ${formatDateTime(item.created_at)}</p>
           <div class="csr-actions">
             <a class="button-link" href="/api/csr/${encodeURIComponent(item.id)}/download">Baixar CSR</a>
-            <button type="button" class="csr-discard-btn">Descartar</button>
+            <button type="button" class="csr-discard-btn" data-requires-admin>Descartar</button>
           </div>
-          <form class="csr-complete-form">
+          <form class="csr-complete-form" data-requires-admin>
             <label>Cole aqui o certificado recebido da CA (PEM)</label>
             <textarea class="csr-cert-input" rows="6" placeholder="-----BEGIN CERTIFICATE-----" required></textarea>
             <button type="submit">Concluir e salvar certificado</button>
@@ -759,6 +760,7 @@ async function refreshPendingCsrs() {
         </div>`
       )
       .join("");
+    applyRoleVisibility();
   } catch {
     // mantém a lista anterior se o fetch falhar
   }
@@ -1068,6 +1070,147 @@ scanHistoryList.addEventListener("click", (event) => {
 });
 
 refreshScanHistory();
+
+// Papéis (Fase 4): `leitor` só visualiza — todo elemento marcado
+// data-requires-admin (formulários/botões de escrita, cards de
+// Usuários/Auditoria) fica escondido pra quem não é admin. O backend já
+// bloqueia essas rotas com 403 de qualquer forma; isso é só a UI não
+// oferecer um controle que a pessoa não pode usar.
+let currentUserRole = null;
+
+// Reaplicada sempre que conteúdo novo pode ter introduzido elementos
+// data-requires-admin na página (ex: itens de CSR renderizados depois do
+// carregamento inicial) — não é só um toggle de uma vez só.
+function applyRoleVisibility() {
+  document.querySelectorAll("[data-requires-admin]").forEach((el) => {
+    el.classList.toggle("hidden", currentUserRole !== "admin");
+  });
+}
+
+async function refreshCurrentUser() {
+  try {
+    const response = await fetch("/api/auth/me");
+    if (!response.ok) return;
+    const me = await response.json();
+    currentUserRole = me.role;
+    window.__currentUsername = me.username;
+    applyRoleVisibility();
+    if (currentUserRole === "admin") {
+      refreshUsers();
+      refreshAuditLog();
+    }
+  } catch {
+    // mantém a UI como está se o fetch falhar
+  }
+}
+
+// Usuários (admin only) — criar/listar/remover.
+const ROLE_LABELS = { admin: "Admin", leitor: "Leitor" };
+const usersBody = document.getElementById("users-body");
+const usersError = document.getElementById("users-error");
+const userCreateForm = document.getElementById("user-create-form");
+
+async function refreshUsers() {
+  try {
+    const response = await fetch("/api/auth/users");
+    if (!response.ok) return;
+    const users = await response.json();
+    usersBody.innerHTML = users
+      .map((user) => {
+        const mfaLabel = user.mfa_enabled ? "ativado" : "desligado";
+        const isSelf = user.username === (window.__currentUsername || null);
+        const deleteBtn = isSelf
+          ? ""
+          : `<button type="button" class="button-link user-delete-btn" data-username="${escapeHtml(user.username)}">remover</button>`;
+        return `<tr>
+          <td>${escapeHtml(user.username)}</td>
+          <td>${ROLE_LABELS[user.role] || escapeHtml(user.role)}</td>
+          <td>${mfaLabel}</td>
+          <td>${deleteBtn}</td>
+        </tr>`;
+      })
+      .join("");
+  } catch {
+    // mantém a lista anterior se o fetch falhar
+  }
+}
+
+userCreateForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  usersError.classList.add("hidden");
+  const username = document.getElementById("user-create-username").value.trim();
+  const password = document.getElementById("user-create-password").value;
+  const role = document.getElementById("user-create-role").value;
+  const submitBtn = userCreateForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  try {
+    const response = await fetch("/api/auth/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, role }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Erro ${response.status}`);
+    }
+    userCreateForm.reset();
+    await refreshUsers();
+    await refreshAuditLog();
+  } catch (err) {
+    usersError.textContent = err.message || "Não foi possível criar o usuário.";
+    usersError.classList.remove("hidden");
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+usersBody.addEventListener("click", async (event) => {
+  const button = event.target.closest(".user-delete-btn");
+  if (!button) return;
+  const username = button.dataset.username;
+  if (!confirm(`Remover o usuário "${username}"?`)) return;
+  try {
+    const response = await fetch(`/api/auth/users/${encodeURIComponent(username)}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Erro ${response.status}`);
+    }
+    await refreshUsers();
+    await refreshAuditLog();
+  } catch (err) {
+    usersError.textContent = err.message || "Não foi possível remover o usuário.";
+    usersError.classList.remove("hidden");
+  }
+});
+
+// Log de auditoria (admin only) — só leitura.
+const auditLogBody = document.getElementById("audit-log-body");
+const auditLogEmpty = document.getElementById("audit-log-empty");
+
+async function refreshAuditLog() {
+  try {
+    const response = await fetch("/api/audit-log");
+    if (!response.ok) return;
+    const entries = await response.json();
+    auditLogEmpty.classList.toggle("hidden", entries.length > 0);
+    auditLogBody.innerHTML = entries
+      .map(
+        (entry) => `<tr>
+          <td>${formatDateTime(entry.created_at)}</td>
+          <td>${escapeHtml(entry.username || "sistema")}</td>
+          <td>${escapeHtml(entry.action)}</td>
+          <td class="note-cell">${escapeHtml(entry.detail || "—")}</td>
+        </tr>`
+      )
+      .join("");
+  } catch {
+    // mantém a lista anterior se o fetch falhar
+  }
+}
+
+refreshCurrentUser();
 
 // Rota inicial — por último, depois que toda função/const que uma tela
 // pode precisar (ex: refreshSecurityStatus) já foi definida.

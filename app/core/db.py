@@ -51,6 +51,15 @@ CREATE TABLE IF NOT EXISTS renewal_attempts (
 );
 CREATE INDEX IF NOT EXISTS idx_renewal_attempts_domain ON renewal_attempts(domain);
 CREATE INDEX IF NOT EXISTS idx_renewal_attempts_created_at ON renewal_attempts(created_at);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id TEXT PRIMARY KEY,
+    username TEXT,
+    action TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
 """
 
 

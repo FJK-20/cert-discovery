@@ -1,0 +1,18 @@
+# Blueprint pro deploy de um clique (botão "Deploy to Render" no README).
+#
+# Fica no plano free por padrão de propósito — é o que dá pra testar sem
+# cartão de crédito. Mas o plano free do Render não suporta disco
+# persistente, então `/app/data` (usuários, certificados, histórico) não
+# sobrevive a um redeploy nesse plano. Pra persistência de verdade: troque
+# `plan: free` por `starter` (ou superior) aqui, redeploy, e adicione um
+# disco de 1GB montado em /app/data pelo dashboard do Render (blueprints
+# não conseguem provisionar disco em planos sem suporte a ele).
+services:
+  - type: web
+    name: cert-discovery
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: CERTDISC_COOKIE_SECURE
+        value: "true"

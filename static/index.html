@@ -78,7 +78,7 @@
 
     <div id="screen-inventario" class="screen hidden">
     <section class="card">
-      <form id="scan-form">
+      <form id="scan-form" data-requires-admin>
         <label for="domain">Domínio autorizado</label>
         <input
           id="domain"
@@ -188,7 +188,7 @@
            emissão — precisa ser irmão, não filho. -->
       <div id="acme-cloudflare-config" class="hidden">
         <div id="acme-dns-status" class="hint"></div>
-        <details id="acme-dns-form-details">
+        <details id="acme-dns-form-details" data-requires-admin>
           <summary>Configurar / atualizar token da Cloudflare</summary>
           <form id="acme-dns-form">
             <label for="cloudflare-token">Token de API da Cloudflare</label>
@@ -219,7 +219,7 @@
         </details>
       </div>
 
-      <form id="acme-renew-form">
+      <form id="acme-renew-form" data-requires-admin>
         <label for="acme-domain">Domínio a emitir/renovar</label>
         <input
           id="acme-domain"
@@ -262,7 +262,7 @@
           propagou antes de avisar a Let's Encrypt. Se ainda não propagou,
           é só tentar de novo em alguns instantes.
         </p>
-        <button id="acme-confirm-dns-btn" type="button">Verificar e continuar</button>
+        <button id="acme-confirm-dns-btn" type="button" data-requires-admin>Verificar e continuar</button>
         <p id="acme-confirm-dns-message" class="hint"></p>
       </div>
 
@@ -289,7 +289,7 @@
         escolhida e cola o certificado assinado de volta quando ele chegar.
       </p>
 
-      <form id="csr-generate-form">
+      <form id="csr-generate-form" data-requires-admin>
         <label for="csr-domains">Domínios (um por linha — o primeiro vira o Common Name)</label>
         <textarea
           id="csr-domains"
@@ -320,7 +320,7 @@
         exige uma pessoa continua exigindo.
       </p>
       <p id="scheduler-status" class="hint"></p>
-      <button type="button" id="scheduler-check-now-btn">Verificar agora</button>
+      <button type="button" id="scheduler-check-now-btn" data-requires-admin>Verificar agora</button>
       <p id="scheduler-check-message" class="hint"></p>
       <h3>Certificados</h3>
       <div id="acme-certs-list" class="hint">Nenhum certificado emitido ainda.</div>
@@ -419,7 +419,7 @@
         opcionais e independentes — configure um, os dois, ou nenhum.
       </p>
       <div id="notify-status" class="hint"></div>
-      <details id="notify-form-details">
+      <details id="notify-form-details" data-requires-admin>
         <summary>Configurar webhook / e-mail</summary>
         <form id="notify-form">
           <label for="notify-webhook-url">URL do webhook (opcional)</label>
@@ -456,9 +456,76 @@
           <button type="submit">Salvar</button>
         </form>
       </details>
-      <button type="button" id="notify-test-btn">Enviar notificação de teste</button>
+      <button type="button" id="notify-test-btn" data-requires-admin>Enviar notificação de teste</button>
       <p id="notify-test-message" class="hint"></p>
       <div id="notify-error" class="hidden error-banner"></div>
+    </section>
+
+    <section class="card" data-requires-admin>
+      <h2>👥 Usuários</h2>
+      <p class="hint">
+        Papel <strong>admin</strong> tem acesso completo (emitir/renovar
+        certificados, rodar scans, mudar configuração, gerenciar outros
+        usuários). Papel <strong>leitor</strong> só visualiza — inventário,
+        certificados, histórico — sem poder alterar nada.
+      </p>
+      <div class="table-wrapper">
+        <table id="users-table">
+          <thead>
+            <tr>
+              <th>Usuário</th>
+              <th>Papel</th>
+              <th>MFA</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="users-body"></tbody>
+        </table>
+      </div>
+      <details id="user-create-form-details">
+        <summary>Adicionar usuário</summary>
+        <form id="user-create-form">
+          <label for="user-create-username">Usuário</label>
+          <input id="user-create-username" type="text" autocomplete="off" required />
+
+          <label for="user-create-password">Senha (mínimo 8 caracteres)</label>
+          <input
+            id="user-create-password"
+            type="password"
+            autocomplete="new-password"
+            minlength="8"
+            required
+          />
+
+          <label for="user-create-role">Papel</label>
+          <select id="user-create-role">
+            <option value="leitor" selected>Leitor (só visualiza)</option>
+            <option value="admin">Admin (acesso completo)</option>
+          </select>
+
+          <button type="submit">Criar usuário</button>
+        </form>
+      </details>
+      <div id="users-error" class="hidden error-banner"></div>
+    </section>
+
+    <section class="card" data-requires-admin>
+      <h2>📜 Log de auditoria</h2>
+      <p class="hint">Quem fez o quê, quando — append-only, sobrevive a restart.</p>
+      <div class="table-wrapper">
+        <table id="audit-log-table">
+          <thead>
+            <tr>
+              <th>Quando</th>
+              <th>Usuário</th>
+              <th>Ação</th>
+              <th>Detalhe</th>
+            </tr>
+          </thead>
+          <tbody id="audit-log-body"></tbody>
+        </table>
+      </div>
+      <p id="audit-log-empty" class="hint hidden">Nenhuma ação registrada ainda.</p>
     </section>
     </div>
   </main>

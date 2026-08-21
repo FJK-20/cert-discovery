@@ -12,7 +12,8 @@ from app.acme.history import renewal_history
 from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, DnsMode
 from app.acme.renewal import renewal_manager
 from app.acme.store import DnsCredentials, acme_store
-from app.auth.dependencies import require_session
+from app.audit.log import audit_log
+from app.auth.dependencies import require_admin, require_session
 from app.core.ratelimit import SlidingWindowRateLimiter
 
 router = APIRouter(prefix="/api/acme", dependencies=[Depends(require_session)])
@@ -75,7 +76,9 @@ async def acme_status() -> dict:
 
 
 @router.post("/dns-credentials")
-async def save_dns_credentials(payload: DnsCredentialsRequest) -> dict:
+async def save_dns_credentials(
+    payload: DnsCredentialsRequest, username: str = Depends(require_admin)
+) -> dict:
     valid = await asyncio.to_thread(cloudflare.verify_token, payload.api_token)
     if not valid:
         raise HTTPException(
@@ -87,11 +90,14 @@ async def save_dns_credentials(payload: DnsCredentialsRequest) -> dict:
         provider="cloudflare", api_token=payload.api_token, delegation_zone=delegation_zone or None
     )
     acme_store.save_dns_credentials(creds)
+    audit_log.record(username=username, action="dns_credentials_saved", detail="cloudflare")
     return {"ok": True}
 
 
 @router.post("/renew")
-async def renew(payload: RenewRequest, request: Request) -> dict:
+async def renew(
+    payload: RenewRequest, request: Request, username: str = Depends(require_admin)
+) -> dict:
     if not _rate_limiter.allow(_client_key(request)):
         raise HTTPException(
             status_code=429,
@@ -109,11 +115,18 @@ async def renew(payload: RenewRequest, request: Request) -> dict:
         raise HTTPException(status_code=400, detail="Domínio inválido.")
 
     job = await renewal_manager.create(domain, payload.environment, payload.dns_mode)
+    audit_log.record(
+        username=username,
+        action="certificate_renew_requested",
+        detail=f"{domain} ({payload.environment.value}, {payload.dns_mode.value})",
+    )
     return {"job_id": job.id}
 
 
 @router.post("/renew/{job_id}/confirm-dns")
-async def confirm_dns(job_id: str, request: Request) -> dict:
+async def confirm_dns(
+    job_id: str, request: Request, username: str = Depends(require_admin)
+) -> dict:
     if not _confirm_rate_limiter.allow(_client_key(request)):
         raise HTTPException(
             status_code=429,
@@ -187,7 +200,7 @@ async def download_fullchain(cert_id: str):
 
 
 @router.get("/certificates/{cert_id}/privkey.pem")
-async def download_private_key(cert_id: str):
+async def download_private_key(cert_id: str, _admin: str = Depends(require_admin)):
     cert = acme_store.load_certificate(cert_id)
     if cert is None:
         raise HTTPException(status_code=404, detail="Certificado não encontrado.")

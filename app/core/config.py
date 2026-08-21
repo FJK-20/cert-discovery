@@ -60,7 +60,9 @@ class Settings:
 
     # Agendador de renovação — verifica periodicamente certificados
     # entrando na janela de renovação (1/3 da validade restante).
-    scheduler_check_interval_seconds: float = 6 * 60 * 60
+    scheduler_check_interval_seconds: float = float(
+        _int_env("CERTDISC_SCHEDULER_INTERVAL_SECONDS", 6 * 60 * 60)
+    )
 
 
 settings = Settings()

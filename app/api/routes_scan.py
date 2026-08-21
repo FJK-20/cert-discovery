@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.auth.dependencies import require_session
+from app.audit.log import audit_log
+from app.auth.dependencies import require_admin, require_session
 from app.core.config import settings
 from app.core.ratelimit import SlidingWindowRateLimiter
 from app.domain.models import JobState, ScanJob
@@ -64,7 +65,9 @@ def _job_snapshot(job: ScanJob) -> dict:
 
 
 @router.post("")
-async def create_scan(payload: ScanRequest, request: Request):
+async def create_scan(
+    payload: ScanRequest, request: Request, username: str = Depends(require_admin)
+):
     if not payload.consent:
         raise HTTPException(
             status_code=400,
@@ -81,6 +84,7 @@ async def create_scan(payload: ScanRequest, request: Request):
         raise HTTPException(status_code=400, detail="Domínio inválido.")
 
     job = await job_manager.create(domain, payload.manual_hosts)
+    audit_log.record(username=username, action="scan_started", detail=domain)
     return {"job_id": job.id}
 
 
