@@ -1,9 +1,12 @@
 """Orquestra o pipeline de um scan: CT logs -> DNS -> TLS -> inventário.
 
-Job store em memória, de propósito: é um MVP de portfólio sem banco de
-dados. Por isso a aplicação precisa rodar com um único worker Uvicorn — ver
-README/docker-compose. Jobs antigos são removidos após `job_ttl_seconds`
-para não crescer indefinidamente num processo de longa duração.
+Job *em andamento* fica em memória (mesmo motivo de sempre: MVP de
+portfólio, um único worker Uvicorn — ver README/docker-compose), consultado
+via polling/SSE. Um retrato de cada job é gravado em SQLite
+(`app/jobs/history.py`) na criação e ao terminar, pra sobreviver a um
+restart — é isso que alimenta a lista "scans recentes" e permite reabrir um
+scan antigo mesmo depois do processo reiniciar. Jobs antigos são removidos
+da memória (não do histórico persistido) após `job_ttl_seconds`.
 """
 
 from __future__ import annotations
@@ -20,23 +23,26 @@ from app.discovery.tls_probe import ProbeError, probe_host
 from app.domain.inventory import build_inventory
 from app.domain.models import CertificateRecord, JobState, Origin, ScanJob, Status
 from app.domain.urgency import classify
+from app.jobs.history import ScanHistoryStore, scan_history
 
 _TLS_PORT = 443
 
 
 class ScanJobManager:
-    def __init__(self) -> None:
+    def __init__(self, history: ScanHistoryStore = scan_history) -> None:
         self._jobs: dict[str, ScanJob] = {}
+        self._history = history
 
     async def create(self, domain: str, manual_hosts: list[str] | None = None) -> ScanJob:
         self._evict_expired()
         job = ScanJob(domain=domain)
         self._jobs[job.id] = job
+        self._history.record(job)
         asyncio.create_task(self._run(job, manual_hosts or []))
         return job
 
     def get(self, job_id: str) -> ScanJob | None:
-        return self._jobs.get(job_id)
+        return self._jobs.get(job_id) or self._history.load(job_id)
 
     def _evict_expired(self) -> None:
         cutoff = time.time() - settings.job_ttl_seconds
@@ -59,6 +65,8 @@ class ScanJobManager:
         except Exception as exc:  # nunca deixa o job travado em progresso
             job.state = JobState.FAILED
             job.error = str(exc)
+        finally:
+            self._history.record(job)
 
     async def _pipeline(self, job: ScanJob, manual_hosts: list[str]) -> None:
         job.state = JobState.DISCOVERING_HOSTS
@@ -96,6 +104,7 @@ class ScanJobManager:
         job.hosts_total = len(candidate_hosts)
         job.state = JobState.PROBING_TLS
         job.progress_message = f"Resolvendo DNS e testando TLS em {job.hosts_total} hosts..."
+        self._history.record(job)
 
         semaphore = asyncio.Semaphore(settings.max_concurrent_probes)
         await asyncio.gather(

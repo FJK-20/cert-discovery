@@ -68,6 +68,12 @@
           Nenhum dado ainda. Vá em <a class="button-link" href="#inventario">Inventário</a> e rode uma busca pra ver o painel.
         </p>
       </section>
+
+      <section id="scan-history-card" class="card hidden">
+        <h2>🕓 Scans recentes</h2>
+        <p class="hint">Sobrevivem a um restart — clique num pra reabrir o resultado.</p>
+        <ul id="scan-history-list" class="scan-history-list"></ul>
+      </section>
     </div>
 
     <div id="screen-inventario" class="screen hidden">
@@ -318,6 +324,35 @@
       <p id="scheduler-check-message" class="hint"></p>
       <h3>Certificados</h3>
       <div id="acme-certs-list" class="hint">Nenhum certificado emitido ainda.</div>
+    </section>
+
+    <section class="card">
+      <h2>📋 Histórico de renovações</h2>
+      <p class="hint">
+        Cada emissão ou renovação (manual, pela tela Emissão, ou automática,
+        pelo verificador em segundo plano) fica registrada aqui — inclusive
+        depois de um restart. Falha automática tenta de novo sozinha algumas
+        vezes, com espera crescente entre tentativas; depois de esgotar,
+        avisa por notificação em vez de continuar tentando.
+      </p>
+      <div class="table-wrapper">
+        <table id="renewal-history-table">
+          <thead>
+            <tr>
+              <th>Domínio</th>
+              <th>Ambiente</th>
+              <th>Modo</th>
+              <th>Gatilho</th>
+              <th>Tentativa</th>
+              <th>Estado</th>
+              <th>Quando</th>
+              <th>Erro</th>
+            </tr>
+          </thead>
+          <tbody id="renewal-history-body"></tbody>
+        </table>
+      </div>
+      <p id="renewal-history-empty" class="hint hidden">Nenhuma tentativa de renovação ainda.</p>
     </section>
     </div>
 

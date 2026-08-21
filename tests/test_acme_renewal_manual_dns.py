@@ -10,6 +10,7 @@ import asyncio
 import dataclasses
 
 from app.acme import renewal as renewal_module
+from app.acme.history import RenewalHistoryStore
 from app.acme.issuance import IssuedResult
 from app.acme.models import AcmeEnvironment, AcmeJobState, DnsMode
 from app.acme.store import AcmeStore
@@ -46,7 +47,9 @@ async def _wait_until(condition, *, timeout=5.0, step=0.02):
 
 def test_manual_mode_blocks_until_confirm_dns_succeeds(tmp_path, monkeypatch):
     monkeypatch.setattr(renewal_module, "issue_certificate", _fake_issue_certificate)
-    manager = renewal_module.AcmeRenewalManager(store=AcmeStore(tmp_path))
+    manager = renewal_module.AcmeRenewalManager(
+        store=AcmeStore(tmp_path), history=RenewalHistoryStore(tmp_path)
+    )
 
     async def scenario():
         job = await manager.create("app.example.com", AcmeEnvironment.STAGING, DnsMode.MANUAL)
@@ -86,7 +89,9 @@ def test_manual_mode_times_out_if_never_confirmed(tmp_path, monkeypatch):
     monkeypatch.setattr(renewal_module, "issue_certificate", _fake_issue_certificate)
     fast_settings = dataclasses.replace(renewal_module.settings, acme_manual_dns_budget_seconds=0.2)
     monkeypatch.setattr(renewal_module, "settings", fast_settings)
-    manager = renewal_module.AcmeRenewalManager(store=AcmeStore(tmp_path))
+    manager = renewal_module.AcmeRenewalManager(
+        store=AcmeStore(tmp_path), history=RenewalHistoryStore(tmp_path)
+    )
 
     async def scenario():
         job = await manager.create("app.example.com", AcmeEnvironment.STAGING, DnsMode.MANUAL)
@@ -101,7 +106,9 @@ def test_manual_mode_times_out_if_never_confirmed(tmp_path, monkeypatch):
 
 
 def test_confirm_dns_rejects_unknown_job(tmp_path):
-    manager = renewal_module.AcmeRenewalManager(store=AcmeStore(tmp_path))
+    manager = renewal_module.AcmeRenewalManager(
+        store=AcmeStore(tmp_path), history=RenewalHistoryStore(tmp_path)
+    )
 
     async def scenario():
         ok, message = await manager.confirm_dns("does-not-exist")

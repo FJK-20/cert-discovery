@@ -15,6 +15,8 @@ from app.api.routes_notify import router as notify_router
 from app.api.routes_scan import router as scan_router
 from app.auth.dependencies import SESSION_COOKIE_NAME, get_authenticated_username
 from app.auth.routes_auth import router as auth_router
+from app.core.config import settings
+from app.core.db import init_db
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
@@ -22,6 +24,9 @@ STATIC_DIR = BASE_DIR / "static"
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    # Histórico persistente de scans e tentativas de renovação (SQLite) —
+    # cria as tabelas se ainda não existirem.
+    init_db(Path(settings.data_dir))
     # Verifica periodicamente certificados entrando na janela de
     # renovação — ver app/acme/scheduler.py pra regra de negócio completa.
     scheduler.start()

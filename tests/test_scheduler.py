@@ -11,6 +11,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 from app.acme import scheduler as scheduler_module
+from app.acme.history import RenewalHistoryStore
 from app.acme.models import AcmeJob, AcmeJobState
 from app.acme.scheduler import RenewalScheduler, latest_per_domain, renewal_threshold
 from app.acme.store import AcmeStore, IssuedCertificate
@@ -70,7 +71,7 @@ class _FakeManager:
         self._outcomes = outcomes
         self.created_for: list[str] = []
 
-    async def create(self, domain, environment, dns_mode):
+    async def create(self, domain, environment, dns_mode, *, trigger="manual"):
         self.created_for.append(domain)
         state, error = self._outcomes.get(domain, ("done", None))
         job = AcmeJob(domain=domain, environment=environment, dns_mode=dns_mode)
@@ -101,6 +102,7 @@ def test_check_once_skips_certs_not_yet_due(tmp_path):
     manager = _FakeManager({})
     sched = RenewalScheduler(
         store=store, manager=manager, notify_store=NotificationStore(tmp_path / "notif"),
+        history=RenewalHistoryStore(tmp_path / "history"),
         check_interval_seconds=9999,
     )
     results = asyncio.run(sched.check_once())
@@ -116,6 +118,7 @@ def test_check_once_auto_renews_cloudflare_mode_cert(tmp_path):
     manager = _FakeManager({"due.example.com": ("done", None)})
     sched = RenewalScheduler(
         store=store, manager=manager, notify_store=NotificationStore(tmp_path / "notif"),
+        history=RenewalHistoryStore(tmp_path / "history"),
         check_interval_seconds=9999,
     )
     results = asyncio.run(sched.check_once())
@@ -140,7 +143,9 @@ def test_check_once_notifies_on_auto_renewal_failure(tmp_path, monkeypatch):
     manager = _FakeManager({"fails.example.com": ("failed", "Cloudflare recusou a requisição")})
     notify_store = _notify_store_with(tmp_path / "notif", webhook_url="https://example.com/hook")
     sched = RenewalScheduler(
-        store=store, manager=manager, notify_store=notify_store, check_interval_seconds=9999
+        store=store, manager=manager, notify_store=notify_store,
+        history=RenewalHistoryStore(tmp_path / "history"),
+        check_interval_seconds=9999,
     )
     results = asyncio.run(sched.check_once())
 
@@ -161,7 +166,9 @@ def test_check_once_notifies_manual_mode_without_attempting_renewal(tmp_path, mo
     manager = _FakeManager({})
     notify_store = _notify_store_with(tmp_path / "notif", webhook_url="https://example.com/hook")
     sched = RenewalScheduler(
-        store=store, manager=manager, notify_store=notify_store, check_interval_seconds=9999
+        store=store, manager=manager, notify_store=notify_store,
+        history=RenewalHistoryStore(tmp_path / "history"),
+        check_interval_seconds=9999,
     )
     results = asyncio.run(sched.check_once())
 
@@ -180,8 +187,79 @@ def test_check_once_notifies_csr_manual_cert_without_dns_mode(tmp_path, monkeypa
     manager = _FakeManager({})
     notify_store = _notify_store_with(tmp_path / "notif", webhook_url="https://example.com/hook")
     sched = RenewalScheduler(
-        store=store, manager=manager, notify_store=notify_store, check_interval_seconds=9999
+        store=store, manager=manager, notify_store=notify_store,
+        history=RenewalHistoryStore(tmp_path / "history"),
+        check_interval_seconds=9999,
     )
     asyncio.run(sched.check_once())
     assert manager.created_for == []
     assert captured
+
+
+def test_check_once_backs_off_after_recent_failure(tmp_path):
+    store = AcmeStore(tmp_path)
+    store.save_certificate(
+        _cert("due.example.com", days_ago_issued=61, days_until_expiry=29, dns_mode="cloudflare")
+    )
+    history = RenewalHistoryStore(tmp_path / "history")
+    history.start(
+        attempt_id="prev-1",
+        domain="due.example.com",
+        environment="staging",
+        dns_mode="cloudflare",
+        trigger="scheduler",
+        attempt_number=1,
+    )
+    history.finish("prev-1", state="failed", error="falha simulada")
+
+    manager = _FakeManager({"due.example.com": ("done", None)})
+    sched = RenewalScheduler(
+        store=store, manager=manager, notify_store=NotificationStore(tmp_path / "notif"),
+        history=history,
+        check_interval_seconds=9999,
+    )
+    results = asyncio.run(sched.check_once())
+
+    assert manager.created_for == []  # ainda dentro da janela de backoff
+    assert results[0]["action"] == "renewal_backoff"
+
+
+def test_check_once_gives_up_after_max_retries_and_notifies(tmp_path, monkeypatch):
+    captured = _capture_notify(monkeypatch)
+    store = AcmeStore(tmp_path)
+    store.save_certificate(
+        _cert(
+            "chronic.example.com", days_ago_issued=61, days_until_expiry=29, dns_mode="cloudflare"
+        )
+    )
+    history = RenewalHistoryStore(tmp_path / "history")
+    for i in range(scheduler_module._MAX_AUTO_RETRIES):
+        attempt_id = f"prev-{i}"
+        history.start(
+            attempt_id=attempt_id,
+            domain="chronic.example.com",
+            environment="staging",
+            dns_mode="cloudflare",
+            trigger="scheduler",
+            attempt_number=i + 1,
+        )
+        history.finish(attempt_id, state="failed", error=f"falha {i}")
+
+    manager = _FakeManager({})
+    notify_store = _notify_store_with(tmp_path / "notif", webhook_url="https://example.com/hook")
+
+    def far_future():
+        # Bem além de qualquer janela de backoff, pra provar que é o
+        # limite de tentativas (não a janela) que barra aqui.
+        return datetime.now(UTC) + timedelta(hours=10)
+
+    sched = RenewalScheduler(
+        store=store, manager=manager, notify_store=notify_store,
+        history=history, check_interval_seconds=9999, now=far_future,
+    )
+    results = asyncio.run(sched.check_once())
+
+    assert manager.created_for == []  # desistiu de tentar sozinho
+    assert results[0]["action"] == "renewal_exhausted"
+    assert len(captured) == 1
+    assert "esgot" in captured[0][0].lower() or "esgot" in captured[0][1].lower()

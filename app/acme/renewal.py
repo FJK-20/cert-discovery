@@ -37,6 +37,7 @@ import uuid
 from datetime import UTC, datetime
 
 from app.acme import cloudflare, dns_check
+from app.acme.history import RenewalHistoryStore, renewal_history
 from app.acme.issuance import IssuanceError, issue_certificate
 from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, DnsMode
 from app.acme.store import AcmeStore, IssuedCertificate, acme_store
@@ -54,19 +55,36 @@ def _delegation_target(domain: str, delegation_zone: str) -> str:
 
 
 class AcmeRenewalManager:
-    def __init__(self, store: AcmeStore = acme_store) -> None:
+    def __init__(
+        self, store: AcmeStore = acme_store, history: RenewalHistoryStore = renewal_history
+    ) -> None:
         self._jobs: dict[str, AcmeJob] = {}
         self._confirm_events: dict[str, threading.Event] = {}
         self._store = store
+        self._history = history
 
     async def create(
-        self, domain: str, environment: AcmeEnvironment, dns_mode: DnsMode = DnsMode.MANUAL
+        self,
+        domain: str,
+        environment: AcmeEnvironment,
+        dns_mode: DnsMode = DnsMode.MANUAL,
+        *,
+        trigger: str = "manual",
     ) -> AcmeJob:
         self._evict_expired()
         job = AcmeJob(domain=domain, environment=environment, dns_mode=dns_mode)
         self._jobs[job.id] = job
         if dns_mode in _EVENT_BASED_MODES:
             self._confirm_events[job.id] = threading.Event()
+        attempt_number = len(self._history.attempts_since_last_success(domain)) + 1
+        self._history.start(
+            attempt_id=job.id,
+            domain=domain,
+            environment=environment.value,
+            dns_mode=dns_mode.value,
+            trigger=trigger,
+            attempt_number=attempt_number,
+        )
         asyncio.create_task(self._run(job))
         return job
 
@@ -140,6 +158,12 @@ class AcmeRenewalManager:
             job.error = f"Erro inesperado: {exc}"
         finally:
             self._confirm_events.pop(job.id, None)
+            self._history.finish(
+                job.id,
+                state=job.state.value,
+                error=job.error,
+                certificate_id=job.certificate_id,
+            )
 
     def _issue_sync(self, job: AcmeJob) -> None:
         if job.dns_mode == DnsMode.CLOUDFLARE:

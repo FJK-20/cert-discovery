@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.ratelimit import SlidingWindowRateLimiter
 from app.domain.models import JobState, ScanJob
 from app.export.exporters import to_csv, to_json
+from app.jobs.history import scan_history
 from app.jobs.manager import job_manager
 
 # `dependencies=[Depends(require_session)]` protege TODAS as rotas deste
@@ -81,6 +82,11 @@ async def create_scan(payload: ScanRequest, request: Request):
 
     job = await job_manager.create(domain, payload.manual_hosts)
     return {"job_id": job.id}
+
+
+@router.get("/history")
+async def scan_history_list(limit: int = 15) -> list[dict]:
+    return scan_history.list_recent(min(max(limit, 1), 50))
 
 
 @router.get("/{job_id}/events")

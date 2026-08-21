@@ -12,6 +12,7 @@ import asyncio
 import dataclasses
 
 from app.acme import renewal as renewal_module
+from app.acme.history import RenewalHistoryStore
 from app.acme.issuance import IssuedResult
 from app.acme.models import AcmeEnvironment, AcmeJobState, DnsMode
 from app.acme.store import AcmeStore, DnsCredentials
@@ -91,7 +92,9 @@ def test_cname_delegation_first_time_requires_confirmation_then_becomes_automati
 
     store = AcmeStore(tmp_path)
     _save_delegation_creds(store)
-    manager = renewal_module.AcmeRenewalManager(store=store)
+    manager = renewal_module.AcmeRenewalManager(
+        store=store, history=RenewalHistoryStore(tmp_path)
+    )
 
     async def not_yet_delegated(hostname, expected, *, timeout):
         return False
@@ -136,7 +139,9 @@ def test_cname_delegation_already_configured_skips_confirmation(tmp_path, monkey
 
     store = AcmeStore(tmp_path)
     _save_delegation_creds(store)
-    manager = renewal_module.AcmeRenewalManager(store=store)
+    manager = renewal_module.AcmeRenewalManager(
+        store=store, history=RenewalHistoryStore(tmp_path)
+    )
 
     async def already_delegated(hostname, expected, *, timeout):
         return True
@@ -159,7 +164,9 @@ def test_cname_delegation_fails_fast_without_delegation_zone_configured(tmp_path
     monkeypatch.setattr(renewal_module, "issue_certificate", _fake_issue_certificate)
     store = AcmeStore(tmp_path)
     store.save_dns_credentials(DnsCredentials(provider="cloudflare", api_token="fake-token"))
-    manager = renewal_module.AcmeRenewalManager(store=store)
+    manager = renewal_module.AcmeRenewalManager(
+        store=store, history=RenewalHistoryStore(tmp_path)
+    )
 
     async def scenario():
         job = await manager.create(

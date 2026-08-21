@@ -13,6 +13,13 @@ Só o certificado mais recente de cada domínio entra na checagem: depois
 de uma renovação bem-sucedida, o certificado antigo (agora superado) tem
 um `not_after` mais cedo mas deixa de ser "o atual" — fica de fora sem
 precisar apagar nada nem manter estado extra de "já renovado".
+
+Cada tentativa de renovação automática é registrada em
+`app/acme/history.py` (SQLite, sobrevive a restart). É de lá que vem a
+contagem de tentativas desde o último sucesso — a base do retry com
+backoff exponencial (regra de negócio 05): falha notifica sempre, tenta
+de novo depois de um tempo crescente, e depois de `_MAX_AUTO_RETRIES`
+tentativas desiste de tentar sozinho e só continua notificando.
 """
 
 from __future__ import annotations
@@ -21,6 +28,7 @@ import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+from app.acme.history import RenewalHistoryStore, renewal_history
 from app.acme.models import AcmeEnvironment, AcmeJobState, DnsMode
 from app.acme.renewal import AcmeRenewalManager, renewal_manager
 from app.acme.store import AcmeStore, IssuedCertificate, acme_store
@@ -31,6 +39,14 @@ from app.notify.store import notification_store as default_notification_store
 
 _AUTO_RENEWABLE_MODES = {DnsMode.CLOUDFLARE.value, DnsMode.CNAME_DELEGATION.value}
 _TERMINAL_STATES = {AcmeJobState.DONE.value, AcmeJobState.FAILED.value}
+
+# Regra de negócio 05: retry com backoff, depois de esgotar as tentativas
+# avisa em vez de desistir silenciosamente. Backoff exponencial (10min,
+# 20min, 40min, ...) travado no próprio intervalo de checagem — não faz
+# sentido esperar mais que isso, o próximo ciclo natural já tentaria de
+# novo de qualquer forma.
+_MAX_AUTO_RETRIES = 5
+_BACKOFF_BASE_SECONDS = 600.0
 
 
 def renewal_threshold(cert: IssuedCertificate) -> datetime | None:
@@ -58,12 +74,14 @@ class RenewalScheduler:
         store: AcmeStore = acme_store,
         manager: AcmeRenewalManager = renewal_manager,
         notify_store: NotificationStore = default_notification_store,
+        history: RenewalHistoryStore = renewal_history,
         check_interval_seconds: float | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._store = store
         self._manager = manager
         self._notify_store = notify_store
+        self._history = history
         self._check_interval_seconds = (
             check_interval_seconds
             if check_interval_seconds is not None
@@ -112,8 +130,37 @@ class RenewalScheduler:
         return self._notify_manual_renewal_needed(cert)
 
     async def _attempt_auto_renewal(self, cert: IssuedCertificate) -> dict:
+        attempts = self._history.attempts_since_last_success(cert.domain)
+        last = attempts[-1] if attempts else None
+
+        if last is not None and last["state"] == "failed" and last["finished_at"]:
+            backoff = min(
+                _BACKOFF_BASE_SECONDS * (2 ** (len(attempts) - 1)), self._check_interval_seconds
+            )
+            elapsed = (self._now() - datetime.fromisoformat(last["finished_at"])).total_seconds()
+            if elapsed < backoff:
+                return {
+                    "domain": cert.domain,
+                    "action": "renewal_backoff",
+                    "retry_in_seconds": round(backoff - elapsed),
+                }
+
+        if len(attempts) >= _MAX_AUTO_RETRIES:
+            message = (
+                f"Renovação automática de {cert.domain} esgotou {len(attempts)} tentativas "
+                f"e precisa de renovação manual. Último erro: "
+                f"{last['error'] if last else 'desconhecido'}."
+            )
+            notifier.notify(
+                f"{cert.domain}: renovação automática esgotada", message, self._notify_store.load()
+            )
+            return {"domain": cert.domain, "action": "renewal_exhausted", "attempts": len(attempts)}
+
         job = await self._manager.create(
-            cert.domain, AcmeEnvironment(cert.environment), DnsMode(cert.dns_mode)
+            cert.domain,
+            AcmeEnvironment(cert.environment),
+            DnsMode(cert.dns_mode),
+            trigger="scheduler",
         )
         # Espera o job terminar. O teto usa o budget do modo manual (bem
         # maior) porque, no pior caso de cname_delegation (alguém apagou o
@@ -129,10 +176,27 @@ class RenewalScheduler:
         if job.state.value == AcmeJobState.DONE.value:
             return {"domain": cert.domain, "action": "renewed", "job_id": job.id}
 
+        attempt_number = len(attempts) + 1
         error = job.error or "tempo esgotado aguardando a renovação"
-        message = f"Renovação automática de {cert.domain} falhou: {error}."
-        notifier.notify(f"Falha ao renovar {cert.domain}", message, self._notify_store.load())
-        return {"domain": cert.domain, "action": "renewal_failed", "error": error}
+        if attempt_number >= _MAX_AUTO_RETRIES:
+            message = (
+                f"Tentativa {attempt_number}/{_MAX_AUTO_RETRIES} de renovação de {cert.domain} "
+                f"falhou: {error}. Tentativas automáticas esgotadas — precisa de ação manual."
+            )
+            subject = f"{cert.domain}: renovação automática esgotada"
+        else:
+            message = (
+                f"Tentativa {attempt_number}/{_MAX_AUTO_RETRIES} de renovação de {cert.domain} "
+                f"falhou: {error}. Nova tentativa automática em breve."
+            )
+            subject = f"Falha ao renovar {cert.domain}"
+        notifier.notify(subject, message, self._notify_store.load())
+        return {
+            "domain": cert.domain,
+            "action": "renewal_failed",
+            "error": error,
+            "attempt_number": attempt_number,
+        }
 
     def _notify_manual_renewal_needed(self, cert: IssuedCertificate) -> dict:
         message = (

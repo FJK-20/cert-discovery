@@ -232,6 +232,7 @@ function finish(snapshot, jobId) {
   renderSummaryStats();
   renderTable();
   renderOverviewCharts();
+  refreshScanHistory();
 }
 
 form.addEventListener("submit", async (event) => {
@@ -663,6 +664,7 @@ acmeRenewForm.addEventListener("submit", async (event) => {
 
       if (job.state === "failed") {
         showAcmeError(job.error || "Falha inesperada durante a emissão do certificado.");
+        await refreshRenewalHistory();
         return;
       }
 
@@ -671,6 +673,7 @@ acmeRenewForm.addEventListener("submit", async (event) => {
       acmeDownloadKey.href = `/api/acme/certificates/${job.certificate_id}/privkey.pem`;
       acmeResult.classList.remove("hidden");
       await refreshAcmeCertificates();
+      await refreshRenewalHistory();
     };
     source.onerror = () => {
       source.close();
@@ -954,6 +957,7 @@ schedulerCheckNowBtn.addEventListener("click", async () => {
       : "Nenhum certificado entrando na janela de renovação agora.";
     await refreshSchedulerStatus();
     await refreshAcmeCertificates();
+    await refreshRenewalHistory();
   } catch (err) {
     schedulerCheckMessage.textContent = err.message || "Não foi possível verificar agora.";
   } finally {
@@ -962,6 +966,108 @@ schedulerCheckNowBtn.addEventListener("click", async () => {
 });
 
 refreshSchedulerStatus();
+
+// Fila de renovação com estado visível — histórico persistente (SQLite),
+// sobrevive a restart. Mesma tabela mostra emissões manuais (tela Emissão)
+// e renovações automáticas (agendador), numa lista só.
+const RENEWAL_STATE_LABELS = {
+  running: "Em andamento",
+  done: "Concluído",
+  failed: "Falhou",
+};
+const RENEWAL_TRIGGER_LABELS = {
+  manual: "Manual (tela Emissão)",
+  scheduler: "Automático (agendador)",
+};
+const renewalHistoryBody = document.getElementById("renewal-history-body");
+const renewalHistoryEmpty = document.getElementById("renewal-history-empty");
+
+async function refreshRenewalHistory() {
+  try {
+    const response = await fetch("/api/acme/renewal-history");
+    if (!response.ok) return;
+    const attempts = await response.json();
+    renewalHistoryEmpty.classList.toggle("hidden", attempts.length > 0);
+    renewalHistoryBody.innerHTML = attempts
+      .map((attempt) => {
+        const stateLabel = RENEWAL_STATE_LABELS[attempt.state] || attempt.state;
+        const triggerLabel = RENEWAL_TRIGGER_LABELS[attempt.trigger_source] || attempt.trigger_source;
+        return `<tr>
+          <td>${escapeHtml(attempt.domain)}</td>
+          <td>${escapeHtml(attempt.environment)}</td>
+          <td>${escapeHtml(attempt.dns_mode || "manual (CSR)")}</td>
+          <td>${escapeHtml(triggerLabel)}</td>
+          <td>${attempt.attempt_number}</td>
+          <td><span class="badge badge-${attempt.state}">${escapeHtml(stateLabel)}</span></td>
+          <td>${formatDateTime(attempt.created_at)}</td>
+          <td class="note-cell">${escapeHtml(attempt.error || "—")}</td>
+        </tr>`;
+      })
+      .join("");
+  } catch {
+    // mantém a lista anterior se o fetch falhar
+  }
+}
+
+refreshRenewalHistory();
+
+// Scans recentes (Dashboard) — histórico persistente (SQLite), sobrevive a
+// restart. Clicar num item reabre o resultado com o mesmo renderizador
+// usado pra um scan recém-terminado (finish()).
+const SCAN_STATE_LABELS = {
+  done: "Concluído",
+  partial_timeout: "Parcial (tempo esgotado)",
+  failed: "Falhou",
+  pending: "Pendente",
+  discovering_hosts: "Descobrindo hosts",
+  probing_tls: "Testando TLS",
+};
+const scanHistoryCard = document.getElementById("scan-history-card");
+const scanHistoryList = document.getElementById("scan-history-list");
+
+async function loadHistoricalScan(jobId) {
+  try {
+    const response = await fetch(`/api/scan/${jobId}`);
+    if (!response.ok) return;
+    const snapshot = await response.json();
+    resetUI();
+    location.hash = "#inventario";
+    finish(snapshot, jobId);
+  } catch {
+    // silencioso — item continua na lista, dá pra tentar de novo
+  }
+}
+
+async function refreshScanHistory() {
+  try {
+    const response = await fetch("/api/scan/history");
+    if (!response.ok) return;
+    const scans = await response.json();
+    scanHistoryCard.classList.toggle("hidden", scans.length === 0);
+    scanHistoryList.innerHTML = scans
+      .map((scan) => {
+        const stateLabel = SCAN_STATE_LABELS[scan.state] || scan.state;
+        const counts = scan.hosts_total ? `${scan.hosts_done}/${scan.hosts_total} hosts · ` : "";
+        return `<li>
+          <button type="button" class="scan-history-item" data-job-id="${escapeHtml(scan.id)}">
+            <span class="scan-history-domain">${escapeHtml(scan.domain)}</span>
+            <span class="scan-history-meta">${counts}${stateLabel} · ${formatDateTime(scan.created_at)}</span>
+          </button>
+        </li>`;
+      })
+      .join("");
+  } catch {
+    // mantém a lista anterior se o fetch falhar
+  }
+}
+
+scanHistoryList.addEventListener("click", (event) => {
+  const button = event.target.closest(".scan-history-item");
+  if (!button) return;
+  loadHistoricalScan(button.dataset.jobId);
+});
+
+refreshScanHistory();
 
 // Rota inicial — por último, depois que toda função/const que uma tela
 // pode precisar (ex: refreshSecurityStatus) já foi definida.

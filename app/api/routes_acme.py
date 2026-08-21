@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.acme import cloudflare
+from app.acme.history import renewal_history
 from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, DnsMode
 from app.acme.renewal import renewal_manager
 from app.acme.store import DnsCredentials, acme_store
@@ -150,6 +151,11 @@ async def renew_snapshot(job_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail="Job não encontrado (pode ter expirado).")
     return _job_snapshot(job)
+
+
+@router.get("/renewal-history")
+async def renewal_history_list(limit: int = 30) -> list[dict]:
+    return renewal_history.recent(min(max(limit, 1), 100))
 
 
 @router.get("/certificates")
