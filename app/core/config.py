@@ -50,6 +50,9 @@ class Settings:
     # explícita do usuário, nunca é o default.
     acme_directory_staging: str = "https://acme-staging-v02.api.letsencrypt.org/directory"
     acme_directory_production: str = "https://acme-v02.api.letsencrypt.org/directory"
+    # ZeroSSL não publica um diretório de staging separado — toda emissão
+    # via ZeroSSL sai direto num certificado de produção real.
+    zerossl_directory_url: str = "https://acme.zerossl.com/v2/DV90"
     acme_job_budget_seconds: float = 180.0
     # Modo manual espera uma pessoa ir criar o registro TXT — minutos, não
     # segundos. Budget bem maior que o do modo automático (Cloudflare).

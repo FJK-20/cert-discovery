@@ -44,6 +44,16 @@ class DnsCredentials:
 
 
 @dataclass
+class CaCredentials:
+    ca: str
+    # kid é um identificador, não segredo por si só — mas hmac_key é a
+    # chave de assinatura da External Account Binding, tão sensível quanto
+    # o token de um provedor de DNS.
+    eab_kid: str
+    eab_hmac_key: str
+
+
+@dataclass
 class IssuedCertificate:
     id: str
     domain: str
@@ -58,6 +68,11 @@ class IssuedCertificate:
     # é o que o agendador de renovação (app/acme/scheduler.py) consulta
     # pra saber se pode tentar renovar sem intervenção humana.
     dns_mode: str | None = None
+    # Mesma ideia do dns_mode acima, mas pra CA: None pros manuais via
+    # CSR, "letsencrypt" ou "zerossl" pros emitidos via ACME. Só
+    # bookkeeping/exibição — qualquer CA funciona com qualquer dns_mode,
+    # não afeta a lógica de renovação.
+    ca: str | None = None
 
 
 def _write_json(path: Path, data: dict) -> None:
@@ -79,6 +94,7 @@ class AcmeStore:
     def __init__(self, data_dir: Path) -> None:
         self._accounts_path = data_dir / "acme_accounts.json"
         self._dns_path = data_dir / "dns_credentials.json"
+        self._ca_credentials_path = data_dir / "ca_credentials.json"
         self._certs_dir = data_dir / "acme_certificates"
         self._box = SecretBox(data_dir)
 
@@ -112,6 +128,25 @@ class AcmeStore:
         entry = asdict(creds)
         entry["api_token"] = self._box.encrypt(entry["api_token"])
         _write_json(self._dns_path, entry)
+
+    def load_ca_credentials(self, ca: str) -> CaCredentials | None:
+        if not self._ca_credentials_path.exists():
+            return None
+        raw = json.loads(self._ca_credentials_path.read_text())
+        entry = raw.get(ca)
+        if not entry:
+            return None
+        entry["eab_hmac_key"] = _maybe_decrypt(self._box, entry["eab_hmac_key"])
+        return CaCredentials(**entry)
+
+    def save_ca_credentials(self, creds: CaCredentials) -> None:
+        raw = {}
+        if self._ca_credentials_path.exists():
+            raw = json.loads(self._ca_credentials_path.read_text())
+        entry = asdict(creds)
+        entry["eab_hmac_key"] = self._box.encrypt(entry["eab_hmac_key"])
+        raw[creds.ca] = entry
+        _write_json(self._ca_credentials_path, raw)
 
     def save_certificate(self, cert: IssuedCertificate) -> None:
         path = self._certs_dir / f"{cert.id}.json"

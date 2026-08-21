@@ -71,7 +71,7 @@ class _FakeManager:
         self._outcomes = outcomes
         self.created_for: list[str] = []
 
-    async def create(self, domain, environment, dns_mode, *, trigger="manual"):
+    async def create(self, domain, environment, dns_mode, ca=None, *, trigger="manual"):
         self.created_for.append(domain)
         state, error = self._outcomes.get(domain, ("done", None))
         job = AcmeJob(domain=domain, environment=environment, dns_mode=dns_mode)

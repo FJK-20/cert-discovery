@@ -29,7 +29,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 from app.acme.history import RenewalHistoryStore, renewal_history
-from app.acme.models import AcmeEnvironment, AcmeJobState, DnsMode
+from app.acme.models import AcmeEnvironment, AcmeJobState, CertificateAuthority, DnsMode
 from app.acme.renewal import AcmeRenewalManager, renewal_manager
 from app.acme.store import AcmeStore, IssuedCertificate, acme_store
 from app.core.config import settings
@@ -160,6 +160,11 @@ class RenewalScheduler:
             cert.domain,
             AcmeEnvironment(cert.environment),
             DnsMode(cert.dns_mode),
+            # Certificados emitidos antes do campo `ca` existir não têm
+            # esse dado gravado — assume Let's Encrypt (era a única CA
+            # disponível na época), nunca troca de CA silenciosamente numa
+            # renovação automática.
+            CertificateAuthority(cert.ca) if cert.ca else CertificateAuthority.LETS_ENCRYPT,
             trigger="scheduler",
         )
         # Espera o job terminar. O teto usa o budget do modo manual (bem

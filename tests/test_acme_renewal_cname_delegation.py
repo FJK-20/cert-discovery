@@ -29,6 +29,8 @@ def _fake_issue_certificate(
     wait_for_dns_ready,
     total_budget_seconds,
     on_progress,
+    eab_kid=None,
+    eab_hmac_key=None,
 ):
     on_progress("preparando...")
     handle = set_dns_challenge(f"_acme-challenge.{domain}", "fake-validation-value")

@@ -11,6 +11,18 @@ class AcmeEnvironment(StrEnum):
     PRODUCTION = "production"
 
 
+class CertificateAuthority(StrEnum):
+    """Qual CA emite o certificado — eixo independente do modo de
+    validação DNS (`DnsMode` abaixo): qualquer CA funciona com qualquer
+    modo, porque o desafio DNS-01 é o mesmo protocolo nos dois casos.
+    `LETS_ENCRYPT` não precisa de credencial nenhuma (conta ACME comum).
+    `ZEROSSL` exige External Account Binding (EAB) — um par kid/hmac_key
+    de uma conta ZeroSSL, sem o qual `new_account()` é rejeitado pela CA."""
+
+    LETS_ENCRYPT = "letsencrypt"
+    ZEROSSL = "zerossl"
+
+
 class DnsMode(StrEnum):
     """Como o desafio DNS-01 é resolvido. `MANUAL` é o padrão genérico —
     funciona com qualquer provedor de DNS, sem credencial nenhuma.
@@ -37,6 +49,7 @@ class AcmeJob:
     domain: str
     environment: AcmeEnvironment
     dns_mode: DnsMode = DnsMode.MANUAL
+    ca: CertificateAuthority = CertificateAuthority.LETS_ENCRYPT
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     state: AcmeJobState = AcmeJobState.PENDING
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))

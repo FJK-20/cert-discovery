@@ -9,9 +9,9 @@ from pydantic import BaseModel, Field
 
 from app.acme import cloudflare
 from app.acme.history import renewal_history
-from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, DnsMode
+from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, CertificateAuthority, DnsMode
 from app.acme.renewal import renewal_manager
-from app.acme.store import DnsCredentials, acme_store
+from app.acme.store import CaCredentials, DnsCredentials, acme_store
 from app.audit.log import audit_log
 from app.auth.dependencies import require_admin, require_operator, require_session
 from app.core.ratelimit import SlidingWindowRateLimiter
@@ -35,10 +35,16 @@ class DnsCredentialsRequest(BaseModel):
     delegation_zone: str | None = Field(default=None, max_length=253)
 
 
+class ZeroSslCredentialsRequest(BaseModel):
+    eab_kid: str = Field(..., min_length=1, max_length=200)
+    eab_hmac_key: str = Field(..., min_length=1, max_length=500)
+
+
 class RenewRequest(BaseModel):
     domain: str = Field(..., min_length=1, max_length=253)
     environment: AcmeEnvironment = AcmeEnvironment.STAGING
     dns_mode: DnsMode = DnsMode.MANUAL
+    ca: CertificateAuthority = CertificateAuthority.LETS_ENCRYPT
 
 
 def _client_key(request: Request) -> str:
@@ -51,6 +57,7 @@ def _job_snapshot(job: AcmeJob) -> dict:
         "domain": job.domain,
         "environment": job.environment.value,
         "dns_mode": job.dns_mode.value,
+        "ca": job.ca.value,
         "state": job.state.value,
         "progress_message": job.progress_message,
         "error": job.error,
@@ -64,15 +71,33 @@ def _job_snapshot(job: AcmeJob) -> dict:
 @router.get("/status")
 async def acme_status() -> dict:
     creds = acme_store.load_dns_credentials()
+    zerossl_creds = acme_store.load_ca_credentials(CertificateAuthority.ZEROSSL.value)
     return {
         "dns_configured": creds is not None,
         "dns_provider": creds.provider if creds else None,
         "delegation_zone": creds.delegation_zone if creds else None,
+        "zerossl_configured": zerossl_creds is not None,
         "accounts": {
             "staging": acme_store.load_account("staging") is not None,
             "production": acme_store.load_account("production") is not None,
+            "zerossl": acme_store.load_account("zerossl") is not None,
         },
     }
+
+
+@router.post("/ca-credentials/zerossl")
+async def save_zerossl_credentials(
+    payload: ZeroSslCredentialsRequest, username: str = Depends(require_admin)
+) -> dict:
+    acme_store.save_ca_credentials(
+        CaCredentials(
+            ca=CertificateAuthority.ZEROSSL.value,
+            eab_kid=payload.eab_kid,
+            eab_hmac_key=payload.eab_hmac_key,
+        )
+    )
+    audit_log.record(username=username, action="ca_credentials_saved", detail="zerossl")
+    return {"ok": True}
 
 
 @router.post("/dns-credentials")
@@ -109,17 +134,21 @@ async def renew(
             status_code=400,
             detail="Configure as credenciais de DNS (Cloudflare) antes de emitir um certificado.",
         )
+    if payload.ca == CertificateAuthority.ZEROSSL and acme_store.load_ca_credentials(
+        CertificateAuthority.ZEROSSL.value
+    ) is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Configure as credenciais EAB da ZeroSSL antes de emitir por essa CA.",
+        )
 
     domain = payload.domain.strip().lower().rstrip(".")
     if not domain or "/" in domain or " " in domain:
         raise HTTPException(status_code=400, detail="Domínio inválido.")
 
-    job = await renewal_manager.create(domain, payload.environment, payload.dns_mode)
-    audit_log.record(
-        username=username,
-        action="certificate_renew_requested",
-        detail=f"{domain} ({payload.environment.value}, {payload.dns_mode.value})",
-    )
+    job = await renewal_manager.create(domain, payload.environment, payload.dns_mode, payload.ca)
+    detail = f"{domain} ({payload.environment.value}, {payload.dns_mode.value}, {payload.ca.value})"
+    audit_log.record(username=username, action="certificate_renew_requested", detail=detail)
     return {"job_id": job.id}
 
 
@@ -181,6 +210,7 @@ async def list_certificates() -> list[dict]:
             "issued_at": c.issued_at,
             "not_after": c.not_after,
             "dns_mode": c.dns_mode,
+            "ca": c.ca,
         }
         for c in acme_store.list_certificates()
     ]

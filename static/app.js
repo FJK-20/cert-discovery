@@ -475,6 +475,13 @@ const acmeCloudflareConfig = document.getElementById("acme-cloudflare-config");
 const acmeDnsStatus = document.getElementById("acme-dns-status");
 const acmeDnsFormDetails = document.getElementById("acme-dns-form-details");
 const acmeDnsForm = document.getElementById("acme-dns-form");
+const acmeCa = document.getElementById("acme-ca");
+const acmeEnvironment = document.getElementById("acme-environment");
+const acmeEnvironmentHint = document.getElementById("acme-environment-hint");
+const acmeZerosslConfig = document.getElementById("acme-zerossl-config");
+const acmeZerosslStatus = document.getElementById("acme-zerossl-status");
+const acmeZerosslFormDetails = document.getElementById("acme-zerossl-form-details");
+const acmeZerosslForm = document.getElementById("acme-zerossl-form");
 const acmeRenewForm = document.getElementById("acme-renew-form");
 const acmeRenewBtn = document.getElementById("acme-renew-btn");
 const acmeDnsInstructions = document.getElementById("acme-dns-instructions");
@@ -503,6 +510,17 @@ let currentAcmeJobId = null;
 acmeDnsMode.addEventListener("change", () => {
   const needsCredentials = acmeDnsMode.value === "cloudflare" || acmeDnsMode.value === "cname_delegation";
   acmeCloudflareConfig.classList.toggle("hidden", !needsCredentials);
+});
+
+// ZeroSSL não tem staging separado — todo certificado emitido por ela sai
+// real, mesmo com "Staging" selecionado (o campo Ambiente vira só
+// bookkeeping/exibição nesse caso, não afeta rate limit real).
+acmeCa.addEventListener("change", () => {
+  const isZerossl = acmeCa.value === "zerossl";
+  acmeZerosslConfig.classList.toggle("hidden", !isZerossl);
+  acmeEnvironmentHint.textContent = isZerossl
+    ? "ZeroSSL não tem ambiente de teste separado — o certificado sai real independente da opção acima."
+    : "";
 });
 
 document.querySelectorAll(".copy-btn[data-copy-target]").forEach((btn) => {
@@ -547,6 +565,14 @@ async function refreshAcmeStatus() {
       acmeDnsStatus.textContent = "Nenhum provedor de DNS configurado ainda.";
       acmeDnsFormDetails.open = true;
     }
+
+    if (status.zerossl_configured) {
+      acmeZerosslStatus.textContent = "Credenciais EAB da ZeroSSL configuradas.";
+      acmeZerosslFormDetails.open = false;
+    } else {
+      acmeZerosslStatus.textContent = "Nenhuma credencial EAB da ZeroSSL configurada ainda.";
+      acmeZerosslFormDetails.open = true;
+    }
   } catch {
     acmeDnsStatus.textContent = "";
   }
@@ -569,9 +595,11 @@ async function refreshAcmeCertificates() {
         const renewalNote = AUTO_RENEWABLE.has(cert.dns_mode)
           ? "renovação automática"
           : "renovação manual";
+        const caLabel = cert.ca === "zerossl" ? "ZeroSSL" : cert.ca === "letsencrypt" ? "Let's Encrypt" : null;
         return `<div class="acme-cert-row">
           <strong>${escapeHtml(cert.domain)}</strong>
           <span>${escapeHtml(cert.environment)}</span>
+          ${caLabel ? `<span>${caLabel}</span>` : ""}
           <span>emitido em ${issuedAt}</span>
           <span>expira em ${notAfter}</span>
           <span>${renewalNote}</span>
@@ -612,6 +640,32 @@ acmeDnsForm.addEventListener("submit", async (event) => {
   }
 });
 
+acmeZerosslForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  hideAcmeError();
+  const eabKid = document.getElementById("zerossl-eab-kid").value.trim();
+  const eabHmacKey = document.getElementById("zerossl-eab-hmac").value.trim();
+  const submitBtn = acmeZerosslForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  try {
+    const response = await fetch("/api/acme/ca-credentials/zerossl", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ eab_kid: eabKid, eab_hmac_key: eabHmacKey }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Erro ${response.status}`);
+    }
+    acmeZerosslForm.reset();
+    await refreshAcmeStatus();
+  } catch (err) {
+    showAcmeError(err.message || "Não foi possível salvar as credenciais da ZeroSSL.");
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
 acmeRenewForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   hideAcmeError();
@@ -623,12 +677,13 @@ acmeRenewForm.addEventListener("submit", async (event) => {
   const domain = document.getElementById("acme-domain").value.trim();
   const environment = document.getElementById("acme-environment").value;
   const dnsMode = acmeDnsMode.value;
+  const ca = acmeCa.value;
 
   try {
     const response = await fetch("/api/acme/renew", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domain, environment, dns_mode: dnsMode }),
+      body: JSON.stringify({ domain, environment, dns_mode: dnsMode, ca }),
     });
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));

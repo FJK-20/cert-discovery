@@ -3,7 +3,7 @@ padrão de tests/test_job_manager.py para AdminStore/ScanJobManager)."""
 
 from __future__ import annotations
 
-from app.acme.store import AcmeAccount, AcmeStore, DnsCredentials, IssuedCertificate
+from app.acme.store import AcmeAccount, AcmeStore, CaCredentials, DnsCredentials, IssuedCertificate
 
 
 def test_account_round_trip_per_environment(tmp_path):
@@ -52,3 +52,24 @@ def test_certificate_round_trip_and_listing(tmp_path):
     assert store.load_certificate("abc") == cert
     assert store.load_certificate("missing") is None
     assert store.list_certificates() == [cert]
+
+
+def test_ca_credentials_round_trip(tmp_path):
+    store = AcmeStore(tmp_path)
+    assert store.load_ca_credentials("zerossl") is None
+
+    creds = CaCredentials(ca="zerossl", eab_kid="kid123", eab_hmac_key="hmac-secret-value")
+    store.save_ca_credentials(creds)
+    assert store.load_ca_credentials("zerossl") == creds
+    assert store.load_ca_credentials("some-other-ca") is None
+
+
+def test_ca_credentials_eab_hmac_key_is_encrypted_on_disk(tmp_path):
+    import json
+
+    store = AcmeStore(tmp_path)
+    store.save_ca_credentials(CaCredentials(ca="zerossl", eab_kid="kid123", eab_hmac_key="secret"))
+
+    raw = json.loads((tmp_path / "ca_credentials.json").read_text())
+    assert raw["zerossl"]["eab_hmac_key"] != "secret"
+    assert store.load_ca_credentials("zerossl").eab_hmac_key == "secret"

@@ -39,7 +39,7 @@ from datetime import UTC, datetime
 from app.acme import cloudflare, dns_check
 from app.acme.history import RenewalHistoryStore, renewal_history
 from app.acme.issuance import IssuanceError, issue_certificate
-from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, DnsMode
+from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, CertificateAuthority, DnsMode
 from app.acme.store import AcmeStore, IssuedCertificate, acme_store
 from app.core.config import settings
 
@@ -68,11 +68,12 @@ class AcmeRenewalManager:
         domain: str,
         environment: AcmeEnvironment,
         dns_mode: DnsMode = DnsMode.MANUAL,
+        ca: CertificateAuthority = CertificateAuthority.LETS_ENCRYPT,
         *,
         trigger: str = "manual",
     ) -> AcmeJob:
         self._evict_expired()
-        job = AcmeJob(domain=domain, environment=environment, dns_mode=dns_mode)
+        job = AcmeJob(domain=domain, environment=environment, dns_mode=dns_mode, ca=ca)
         self._jobs[job.id] = job
         if dns_mode in _EVENT_BASED_MODES:
             self._confirm_events[job.id] = threading.Event()
@@ -182,16 +183,41 @@ class AcmeRenewalManager:
             fullchain_pem=result.fullchain_pem,
             private_key_pem=result.private_key_pem,
             dns_mode=job.dns_mode.value,
+            ca=job.ca.value,
         )
         self._store.save_certificate(cert)
         job.certificate_id = cert.id
 
     def _directory_url(self, job: AcmeJob) -> str:
+        if job.ca == CertificateAuthority.ZEROSSL:
+            return settings.zerossl_directory_url
         return (
             settings.acme_directory_production
             if job.environment == AcmeEnvironment.PRODUCTION
             else settings.acme_directory_staging
         )
+
+    def _account_storage_key(self, job: AcmeJob) -> str:
+        """Chave de armazenamento da conta ACME (app/acme/store.py) — não
+        é simplesmente `job.environment.value` porque a ZeroSSL não tem
+        staging separado: usar "production" pra ela colidiria com a conta
+        de produção da Let's Encrypt, cada uma pisando na conta salva da
+        outra."""
+        if job.ca == CertificateAuthority.ZEROSSL:
+            return "zerossl"
+        return job.environment.value
+
+    def _eab_credentials(self, job: AcmeJob) -> tuple[str | None, str | None]:
+        if job.ca != CertificateAuthority.ZEROSSL:
+            return None, None
+        creds = self._store.load_ca_credentials(CertificateAuthority.ZEROSSL.value)
+        if creds is None:
+            raise IssuanceError(
+                "Nenhuma credencial EAB da ZeroSSL configurada. Configure o "
+                "kid e a chave HMAC (em Emissão → Configurar ZeroSSL) antes "
+                "de emitir um certificado por essa CA."
+            )
+        return creds.eab_kid, creds.eab_hmac_key
 
     def _issue_via_cloudflare(self, job: AcmeJob):
         creds = self._store.load_dns_credentials()
@@ -200,6 +226,7 @@ class AcmeRenewalManager:
                 "Nenhuma credencial de provedor de DNS configurada. "
                 "Configure o token da Cloudflare antes de emitir um certificado."
             )
+        eab_kid, eab_hmac_key = self._eab_credentials(job)
 
         def set_dns_challenge(record_name: str, value: str) -> tuple[str, str]:
             job.progress_message = f"Criando registro TXT {record_name}..."
@@ -227,17 +254,21 @@ class AcmeRenewalManager:
 
         return issue_certificate(
             domain=job.domain,
-            environment=job.environment.value,
+            environment=self._account_storage_key(job),
             directory_url=self._directory_url(job),
             store=self._store,
             set_dns_challenge=set_dns_challenge,
             clear_dns_challenge=clear_dns_challenge,
             wait_for_dns_ready=wait_for_dns_ready,
+            eab_kid=eab_kid,
+            eab_hmac_key=eab_hmac_key,
             total_budget_seconds=issuance_budget,
             on_progress=lambda message: setattr(job, "progress_message", message),
         )
 
     def _issue_via_manual_dns(self, job: AcmeJob):
+        eab_kid, eab_hmac_key = self._eab_credentials(job)
+
         def set_dns_challenge(record_name: str, value: str) -> None:
             job.dns_record_type = "TXT"
             job.dns_record_name = record_name
@@ -254,12 +285,14 @@ class AcmeRenewalManager:
 
         return issue_certificate(
             domain=job.domain,
-            environment=job.environment.value,
+            environment=self._account_storage_key(job),
             directory_url=self._directory_url(job),
             store=self._store,
             set_dns_challenge=set_dns_challenge,
             clear_dns_challenge=clear_dns_challenge,
             wait_for_dns_ready=wait_for_dns_ready,
+            eab_kid=eab_kid,
+            eab_hmac_key=eab_hmac_key,
             total_budget_seconds=settings.acme_manual_dns_budget_seconds,
             on_progress=lambda message: setattr(job, "progress_message", message),
         )
@@ -272,6 +305,7 @@ class AcmeRenewalManager:
                 "domínio de delegação da Cloudflare (em Emissão → Configurar "
                 "token) antes de usar este modo."
             )
+        eab_kid, eab_hmac_key = self._eab_credentials(job)
 
         challenge_hostname = f"_acme-challenge.{job.domain}"
         delegation_target = _delegation_target(job.domain, creds.delegation_zone)
@@ -313,12 +347,14 @@ class AcmeRenewalManager:
 
         return issue_certificate(
             domain=job.domain,
-            environment=job.environment.value,
+            environment=self._account_storage_key(job),
             directory_url=self._directory_url(job),
             store=self._store,
             set_dns_challenge=set_dns_challenge,
             clear_dns_challenge=clear_dns_challenge,
             wait_for_dns_ready=wait_for_dns_ready,
+            eab_kid=eab_kid,
+            eab_hmac_key=eab_hmac_key,
             total_budget_seconds=issuance_budget,
             on_progress=lambda message: setattr(job, "progress_message", message),
         )

@@ -219,6 +219,29 @@
         </details>
       </div>
 
+      <!-- Mesmo motivo do bloco da Cloudflare acima: fora de
+           #acme-renew-form, HTML não permite <form> aninhado. -->
+      <div id="acme-zerossl-config" class="hidden">
+        <div id="acme-zerossl-status" class="hint"></div>
+        <details id="acme-zerossl-form-details" data-requires-role="admin">
+          <summary>Configurar credenciais EAB da ZeroSSL</summary>
+          <form id="acme-zerossl-form">
+            <label for="zerossl-eab-kid">EAB KID</label>
+            <input id="zerossl-eab-kid" type="text" autocomplete="off" required />
+
+            <label for="zerossl-eab-hmac">EAB HMAC Key</label>
+            <input id="zerossl-eab-hmac" type="password" autocomplete="off" required />
+
+            <p class="hint">
+              Pegue os dois valores no painel da ZeroSSL: Developer → "EAB
+              Credentials for ACME Clients". Sem isso, a ZeroSSL rejeita o
+              registro da conta ACME.
+            </p>
+            <button type="submit">Salvar credenciais</button>
+          </form>
+        </details>
+      </div>
+
       <form id="acme-renew-form" data-requires-role="admin,operador">
         <label for="acme-domain">Domínio a emitir/renovar</label>
         <input
@@ -229,11 +252,18 @@
           required
         />
 
+        <label for="acme-ca">Autoridade certificadora (CA)</label>
+        <select id="acme-ca">
+          <option value="letsencrypt" selected>Let's Encrypt (padrão, sem credencial)</option>
+          <option value="zerossl">ZeroSSL (precisa de credenciais EAB — configure abaixo)</option>
+        </select>
+
         <label for="acme-environment">Ambiente</label>
         <select id="acme-environment">
           <option value="staging" selected>Staging (teste — certificado não confiável, sem rate limit real)</option>
           <option value="production">Produção (certificado real — sujeito a rate limit do Let's Encrypt)</option>
         </select>
+        <p id="acme-environment-hint" class="hint"></p>
 
         <label for="acme-dns-mode">Como validar o domínio</label>
         <select id="acme-dns-mode">

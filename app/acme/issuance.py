@@ -42,7 +42,12 @@ class IssuedResult:
 
 
 def _get_or_create_account(
-    store: AcmeStore, environment: str, directory_url: str
+    store: AcmeStore,
+    environment: str,
+    directory_url: str,
+    *,
+    eab_kid: str | None = None,
+    eab_hmac_key: str | None = None,
 ) -> tuple[acme_client.ClientV2, jose.JWKRSA]:
     saved = store.load_account(environment)
     if saved is not None:
@@ -61,8 +66,19 @@ def _get_or_create_account(
     net = acme_client.ClientNetwork(account_key, user_agent=USER_AGENT)
     directory = acme_client.ClientV2.get_directory(directory_url, net)
     acme = acme_client.ClientV2(directory, net)
+
+    registration_kwargs = {"terms_of_service_agreed": True}
+    if eab_kid and eab_hmac_key:
+        # CAs como a ZeroSSL exigem essa "External Account Binding" — uma
+        # prova assinada com um segredo pré-combinado (obtido no painel da
+        # CA) de que quem está registrando essa nova conta ACME já é dono
+        # de uma conta lá. Sem isso, new_account() é rejeitado.
+        registration_kwargs["external_account_binding"] = messages.ExternalAccountBinding.from_data(
+            account_key, eab_kid, eab_hmac_key, directory
+        )
+
     try:
-        regr = acme.new_account(messages.NewRegistration.from_data(terms_of_service_agreed=True))
+        regr = acme.new_account(messages.NewRegistration.from_data(**registration_kwargs))
     except messages.Error as exc:
         raise IssuanceError(f"Falha ao registrar conta ACME: {exc}") from exc
 
@@ -87,6 +103,8 @@ def issue_certificate(
     wait_for_dns_ready: Callable[[], None],
     total_budget_seconds: float,
     on_progress: Callable[[str], None] = lambda _msg: None,
+    eab_kid: str | None = None,
+    eab_hmac_key: str | None = None,
 ) -> IssuedResult:
     """Executa o fluxo completo. `set_dns_challenge(record_name, value)`
     deve criar o TXT e devolver um "handle" opaco que `clear_dns_challenge`
@@ -95,9 +113,15 @@ def issue_certificate(
     no modo automático (Cloudflare) é só um `time.sleep` de propagação; no
     modo manual, bloqueia até a pessoa confirmar (ver
     app/acme/renewal.py) — a interface não sabe nem precisa saber qual dos
-    dois é."""
+    dois é. `environment` aqui é só a chave de armazenamento da conta ACME
+    (quem chama decide o valor — CAs sem staging, como a ZeroSSL, usam uma
+    chave própria pra não colidir com a conta de produção da Let's
+    Encrypt). `eab_kid`/`eab_hmac_key` só são usados na criação de uma
+    conta nova, pra CAs que exigem External Account Binding."""
     on_progress("Preparando conta ACME...")
-    acme, account_key = _get_or_create_account(store, environment, directory_url)
+    acme, account_key = _get_or_create_account(
+        store, environment, directory_url, eab_kid=eab_kid, eab_hmac_key=eab_hmac_key
+    )
 
     on_progress("Gerando chave e CSR do certificado...")
     cert_key = generate_private_key()
