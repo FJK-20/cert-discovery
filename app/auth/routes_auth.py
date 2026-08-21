@@ -11,9 +11,12 @@ MFA acontece só depois de autenticado (ver rotas `/mfa/*` abaixo), não faz
 parte desse cálculo de estado — por isso um cadastro recém-criado já cai
 direto em `authenticated`, sem etapa intermediária forçada.
 
-Dois papéis simples (`app/auth/store.py`): `admin` (acesso completo,
-incluindo gerenciar outros usuários) e `leitor` (só leitura — bloqueado nas
-rotas de escrita via `Depends(require_admin)` em cada router de negócio).
+Quatro papéis (`app/auth/store.py`): `admin` (acesso completo, incluindo
+gerenciar outros usuários e configuração sensível do sistema), `operador`
+(ciclo de vida de certificado no dia a dia — bloqueado via
+`Depends(require_operator)` nos routers de negócio), `auditor` (só enxerga
+log de auditoria e lista de usuários, nunca age) e `leitor` (só visualiza
+inventário/certificados/histórico).
 """
 
 from __future__ import annotations
@@ -23,15 +26,17 @@ from pydantic import BaseModel, Field
 
 from app.audit.log import audit_log
 from app.auth import qr, totp
+from app.auth.api_keys import api_key_store
 from app.auth.dependencies import (
     SESSION_COOKIE_NAME,
     get_authenticated_username,
     require_admin,
+    require_auditor,
     require_session,
 )
 from app.auth.passwords import hash_password, verify_password
 from app.auth.sessions import pending_login_store, session_store
-from app.auth.store import ROLE_ADMIN, ROLES, UserAccount, user_store
+from app.auth.store import ROLE_ADMIN, ROLE_LEITOR, ROLES, UserAccount, user_store
 from app.core.config import settings
 from app.core.ratelimit import SlidingWindowRateLimiter
 
@@ -52,7 +57,15 @@ class SetupRequest(BaseModel):
 class CreateUserRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=8, max_length=256)
-    role: str = ROLE_ADMIN
+    # Least privilege por padrão: se o chamador não especificar um papel,
+    # o pior caso é criar alguém sem poder nenhum, nunca outro admin sem
+    # querer.
+    role: str = ROLE_LEITOR
+
+
+class CreateApiKeyRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    role: str = ROLE_LEITOR
 
 
 class MfaCodeRequest(BaseModel):
@@ -265,7 +278,7 @@ async def mfa_disable(
 
 
 @router.get("/users")
-async def list_users(_admin: str = Depends(require_admin)) -> list[dict]:
+async def list_users(_viewer: str = Depends(require_auditor)) -> list[dict]:
     return [
         {"username": u.username, "role": u.role, "mfa_enabled": u.mfa_enabled}
         for u in user_store.list_all()
@@ -304,4 +317,42 @@ async def delete_user(username: str, admin: str = Depends(require_admin)) -> dic
 
     user_store.delete(username)
     audit_log.record(username=admin, action="user_deleted", detail=username)
+    return {"ok": True}
+
+
+@router.get("/api-keys")
+async def list_api_keys(_viewer: str = Depends(require_auditor)) -> list[dict]:
+    return [
+        {
+            "id": k.id,
+            "name": k.name,
+            "role": k.role,
+            "created_by": k.created_by,
+            "created_at": k.created_at,
+            "last_used_at": k.last_used_at,
+        }
+        for k in api_key_store.list_all()
+    ]
+
+
+@router.post("/api-keys", status_code=status.HTTP_201_CREATED)
+async def create_api_key(payload: CreateApiKeyRequest, admin: str = Depends(require_admin)) -> dict:
+    if payload.role not in ROLES:
+        raise HTTPException(status_code=400, detail=f"Papel inválido — use um de: {ROLES}.")
+    key_id, raw_key = api_key_store.create(name=payload.name, role=payload.role, created_by=admin)
+    audit_log.record(
+        username=admin, action="api_key_created", detail=f"{payload.name} (papel: {payload.role})"
+    )
+    # A chave em texto puro só existe nesta resposta — não fica recuperável
+    # depois, nem pelo próprio admin que criou (só o hash é guardado).
+    return {"id": key_id, "key": raw_key, "name": payload.name}
+
+
+@router.delete("/api-keys/{key_id}")
+async def revoke_api_key(key_id: str, admin: str = Depends(require_admin)) -> dict:
+    info = api_key_store.get(key_id)
+    if info is None:
+        raise HTTPException(status_code=404, detail="Chave não encontrada.")
+    api_key_store.revoke(key_id)
+    audit_log.record(username=admin, action="api_key_revoked", detail=info.name)
     return {"ok": True}

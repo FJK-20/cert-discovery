@@ -17,6 +17,11 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
       - run: pytest
+      # Vulnerabilidades conhecidas nas dependências (banco OSV) — não
+      # falha o build (--strict quebraria em achados que ainda não têm
+      # fix disponível, o que travaria todo push por algo fora do nosso
+      # controle); serve pra visibilidade no log, não gate automático.
+      - run: pip-audit -r requirements.txt || true
 
   publish:
     needs: test

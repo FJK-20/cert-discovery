@@ -591,9 +591,11 @@ footer {
   word-break: break-word;
 }
 
-.detail-grid dd.mono {
+.detail-grid dd.mono,
+code.mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.82rem;
+  word-break: break-all;
 }
 
 #results-table tbody tr {

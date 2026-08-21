@@ -314,25 +314,54 @@ antes de confiar na configuração.
 
 ## Usuários, papéis e auditoria
 
-A aplicação suporta múltiplos usuários com dois papéis:
+A aplicação suporta múltiplos usuários com quatro papéis, numa segregação
+de funções deliberada (quem opera não é quem audita):
 
 - **admin** — acesso completo: rodar scans, emitir/renovar certificados,
-  mudar configuração (DNS, notificações), gerenciar outros usuários.
+  mudar configuração sensível (credencial de DNS, canais de notificação),
+  gerenciar usuários e API keys.
+- **operador** — ciclo de vida de certificado no dia a dia (scan, emissão,
+  renovação, CSR, baixar chave privada) — não gerencia usuários, não muda
+  configuração do sistema, não vê o log de auditoria.
+- **auditor** — só enxerga usuários, API keys e o log de auditoria (fins
+  de compliance) — não roda nada, não gerencia nada.
 - **leitor** — só visualização: inventário, certificados, histórico de
-  scans e de renovações. Toda rota de escrita (e o download da chave
-  privada de um certificado, mesmo não sendo tecnicamente "escrita")
-  devolve 403 pra esse papel — a interface já esconde os controles
-  correspondentes, mas a garantia real é no backend, não só na UI.
+  scans e de renovações.
+
+Toda rota de escrita (e o download da chave privada de um certificado,
+mesmo não sendo tecnicamente "escrita" — é dado sensível) exige o papel
+certo, checado no backend a cada request — a interface já esconde os
+controles correspondentes pra quem não tem o papel, mas a garantia real
+nunca é só na UI.
 
 O primeiro usuário cadastrado é sempre admin (não existe autocadastro
 aberto depois disso — só um admin já autenticado cria novas contas, em
 Configurações → Usuários). Não é possível remover a si mesmo nem remover o
 último admin restante.
 
-Toda ação relevante (usuário criado/removido, MFA ativado/desativado,
-credencial de DNS salva, configuração de notificação alterada, scan/CSR
-iniciado) fica num log de auditoria **append-only** — quem fez, o quê e
-quando — visível só para admins em Configurações → Log de auditoria.
+### Log de auditoria (tamper-evident)
+
+Toda ação relevante (usuário/API key criada ou removida, MFA ativado/
+desativado, credencial de DNS salva, configuração de notificação alterada,
+scan/CSR iniciado) fica num log **append-only** — quem fez, o quê e quando
+— visível pra admin e auditor em Configurações → Log de auditoria.
+
+Cada linha guarda o hash SHA-256 da linha anterior mais o próprio conteúdo
+(uma cadeia de hashes, mesma ideia por trás de um blockchain simples) —
+qualquer edição ou remoção de uma linha antiga, mesmo direto no arquivo
+SQLite por fora da API, quebra a cadeia a partir daquele ponto. O botão
+"Verificar integridade" recomputa a cadeia inteira e mostra se bate. Não é
+um substituto de controle de acesso ao disco (quem tem acesso de escrita
+ao arquivo consegue recalcular a cadeia inteira depois de adulterar) — é
+detecção de violação de integridade, não prevenção.
+
+### API keys
+
+Acesso programático (integração externa, scripts, um SIEM puxando o log
+de auditoria via API) via `Authorization: Bearer <chave>` em vez de cookie
+de sessão — mesma autenticação, mesmos papéis. Gerada em Configurações →
+API Keys, a chave só é exibida uma vez, no momento da criação (só o hash
+fica salvo) — perdeu, revoga e gera outra.
 
 ## Variáveis de ambiente
 
@@ -347,6 +376,9 @@ quando — visível só para admins em Configurações → Log de auditoria.
 | `CERTDISC_SCHEDULER_INTERVAL_SECONDS`  | `21600` (6h) | Intervalo do verificador de renovação automática |
 
 ## Segurança
+
+Encontrou uma vulnerabilidade? Veja [SECURITY.md](SECURITY.md) pra como
+reportar de forma privada.
 
 Como a aplicação conecta a hosts derivados de um domínio informado pelo
 usuário (via CT logs, que podem conter qualquer SAN histórico), ela inclui
@@ -378,7 +410,34 @@ Sobre a autenticação:
 - rate limiting dedicado nas rotas de login/MFA (`CERTDISC_AUTH_RATE_LIMIT`),
   já que um código de 6 dígitos é força-bruteável sem esse limite;
 - cookie de sessão `httpOnly` + `SameSite=Lax`; sem CORS liberado para
-  outras origens (mitiga CSRF sem precisar de token dedicado).
+  outras origens (mitiga CSRF sem precisar de token dedicado — um POST
+  vindo de outra origem nunca leva o cookie).
+
+Sobre dado em repouso — criptografia, não só permissão de arquivo:
+
+- chave privada de certificado (ACME e CSR), chave de conta ACME, token de
+  API de DNS, senha de SMTP e segredo TOTP ficam **criptografados** em
+  disco (Fernet/AES via `cryptography`, `app/core/crypto.py`), nunca em
+  texto puro — só a aplicação, com a master key, consegue ler de volta;
+- a master key vem de `CERTDISC_MASTER_KEY` (recomendado em produção — pode
+  vir de um secret manager externo, fora do disco da aplicação) ou, se não
+  definida, é gerada e persistida em `data/master.key` (0600) na primeira
+  vez — funciona sem configuração extra pra rodar localmente/demo, com o
+  trade-off explícito de que nesse caso a chave mora no mesmo disco que os
+  dados que protege;
+- dado gravado antes dessa camada existir é migrado de forma transparente
+  (detecta que não é um token válido, usa como texto plano, recriptografa
+  no próximo save) — não exige um passo manual depois de atualizar.
+
+Cabeçalhos de segurança HTTP (`app/core/security_headers.py`), em toda
+resposta: Content-Security-Policy restritiva (sem `unsafe-inline` em
+nenhuma diretiva — todo script/CSS do frontend já vive em arquivo externo),
+X-Frame-Options, X-Content-Type-Options, Referrer-Policy, e
+Strict-Transport-Security quando o deploy está atrás de HTTPS
+(`CERTDISC_COOKIE_SECURE=true`).
+
+Dependências verificadas por vulnerabilidade conhecida (banco OSV) a cada
+push, via `pip-audit` no CI.
 
 ## Limitações conhecidas
 
@@ -404,6 +463,7 @@ Sobre a autenticação:
 pip install -r requirements-dev.txt
 pytest
 ruff check .
+pip-audit -r requirements.txt  # opcional — mesmo check que roda no CI
 ```
 
 Todos os testes são offline/determinísticos: consultas ao crt.sh são

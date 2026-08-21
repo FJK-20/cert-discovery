@@ -18,6 +18,7 @@ from app.auth.dependencies import SESSION_COOKIE_NAME, get_authenticated_usernam
 from app.auth.routes_auth import router as auth_router
 from app.core.config import settings
 from app.core.db import init_db
+from app.core.security_headers import SecurityHeadersMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
@@ -39,6 +40,7 @@ app = FastAPI(
     description="Descoberta e inventário de certificados TLS via CT logs + handshake ao vivo.",
     lifespan=_lifespan,
 )
+app.add_middleware(SecurityHeadersMiddleware, hsts_enabled=settings.cookie_secure)
 app.include_router(auth_router)
 app.include_router(scan_router)
 app.include_router(acme_router)

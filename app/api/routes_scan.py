@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.audit.log import audit_log
-from app.auth.dependencies import require_admin, require_session
+from app.auth.dependencies import require_operator, require_session
 from app.core.config import settings
 from app.core.ratelimit import SlidingWindowRateLimiter
 from app.domain.models import JobState, ScanJob
@@ -66,7 +66,7 @@ def _job_snapshot(job: ScanJob) -> dict:
 
 @router.post("")
 async def create_scan(
-    payload: ScanRequest, request: Request, username: str = Depends(require_admin)
+    payload: ScanRequest, request: Request, username: str = Depends(require_operator)
 ):
     if not payload.consent:
         raise HTTPException(

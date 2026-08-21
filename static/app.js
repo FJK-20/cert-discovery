@@ -156,16 +156,23 @@ function barChart(container, entries, { max } = {}) {
     return;
   }
   const peak = max ?? Math.max(...entries.map(([, count]) => count));
+  // Largura da barra via propriedade CSSOM (.style.width) depois de
+  // montar o HTML, não como atributo style="" inline — mantém o CSP sem
+  // precisar de style-src 'unsafe-inline'.
   container.innerHTML = entries
-    .map(([label, count]) => {
-      const pct = peak > 0 ? Math.round((count / peak) * 100) : 0;
-      return `<div class="bar-row">
+    .map(
+      ([label, count]) => `<div class="bar-row">
         <span class="bar-label" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
-        <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+        <div class="bar-track"><div class="bar-fill"></div></div>
         <span class="bar-value">${count}</span>
-      </div>`;
-    })
+      </div>`
+    )
     .join("");
+  container.querySelectorAll(".bar-fill").forEach((el, index) => {
+    const [, count] = entries[index];
+    const pct = peak > 0 ? Math.round((count / peak) * 100) : 0;
+    el.style.width = `${pct}%`;
+  });
 }
 
 function renderOverviewCharts() {
@@ -569,7 +576,7 @@ async function refreshAcmeCertificates() {
           <span>expira em ${notAfter}</span>
           <span>${renewalNote}</span>
           <a class="button-link" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/fullchain.pem">certificado</a>
-          <a class="button-link" data-requires-admin href="/api/acme/certificates/${encodeURIComponent(cert.id)}/privkey.pem">chave privada</a>
+          <a class="button-link" data-requires-role="admin,operador" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/privkey.pem">chave privada</a>
         </div>`;
       })
       .join("");
@@ -749,9 +756,9 @@ async function refreshPendingCsrs() {
           <p class="hint">Gerado em ${formatDateTime(item.created_at)}</p>
           <div class="csr-actions">
             <a class="button-link" href="/api/csr/${encodeURIComponent(item.id)}/download">Baixar CSR</a>
-            <button type="button" class="csr-discard-btn" data-requires-admin>Descartar</button>
+            <button type="button" class="csr-discard-btn" data-requires-role="admin,operador">Descartar</button>
           </div>
-          <form class="csr-complete-form" data-requires-admin>
+          <form class="csr-complete-form" data-requires-role="admin,operador">
             <label>Cole aqui o certificado recebido da CA (PEM)</label>
             <textarea class="csr-cert-input" rows="6" placeholder="-----BEGIN CERTIFICATE-----" required></textarea>
             <button type="submit">Concluir e salvar certificado</button>
@@ -1071,19 +1078,21 @@ scanHistoryList.addEventListener("click", (event) => {
 
 refreshScanHistory();
 
-// Papéis (Fase 4): `leitor` só visualiza — todo elemento marcado
-// data-requires-admin (formulários/botões de escrita, cards de
-// Usuários/Auditoria) fica escondido pra quem não é admin. O backend já
-// bloqueia essas rotas com 403 de qualquer forma; isso é só a UI não
-// oferecer um controle que a pessoa não pode usar.
+// Papéis (Fase 4-5): quatro papéis sem hierarquia entre operador/auditor
+// (ver app/auth/store.py). Todo elemento marcado data-requires-role="a,b"
+// fica escondido pra quem não estiver num desses papéis — o backend já
+// bloqueia a rota correspondente com 403 de qualquer forma (ver
+// app/auth/dependencies.py); isso é só a UI não oferecer um controle que a
+// pessoa não pode usar.
 let currentUserRole = null;
 
 // Reaplicada sempre que conteúdo novo pode ter introduzido elementos
-// data-requires-admin na página (ex: itens de CSR renderizados depois do
+// data-requires-role na página (ex: itens de CSR renderizados depois do
 // carregamento inicial) — não é só um toggle de uma vez só.
 function applyRoleVisibility() {
-  document.querySelectorAll("[data-requires-admin]").forEach((el) => {
-    el.classList.toggle("hidden", currentUserRole !== "admin");
+  document.querySelectorAll("[data-requires-role]").forEach((el) => {
+    const allowedRoles = el.dataset.requiresRole.split(",").map((r) => r.trim());
+    el.classList.toggle("hidden", !allowedRoles.includes(currentUserRole));
   });
 }
 
@@ -1095,8 +1104,9 @@ async function refreshCurrentUser() {
     currentUserRole = me.role;
     window.__currentUsername = me.username;
     applyRoleVisibility();
-    if (currentUserRole === "admin") {
+    if (currentUserRole === "admin" || currentUserRole === "auditor") {
       refreshUsers();
+      refreshApiKeys();
       refreshAuditLog();
     }
   } catch {
@@ -1105,7 +1115,7 @@ async function refreshCurrentUser() {
 }
 
 // Usuários (admin only) — criar/listar/remover.
-const ROLE_LABELS = { admin: "Admin", leitor: "Leitor" };
+const ROLE_LABELS = { admin: "Admin", operador: "Operador", auditor: "Auditor", leitor: "Leitor" };
 const usersBody = document.getElementById("users-body");
 const usersError = document.getElementById("users-error");
 const userCreateForm = document.getElementById("user-create-form");
@@ -1121,7 +1131,7 @@ async function refreshUsers() {
         const isSelf = user.username === (window.__currentUsername || null);
         const deleteBtn = isSelf
           ? ""
-          : `<button type="button" class="button-link user-delete-btn" data-username="${escapeHtml(user.username)}">remover</button>`;
+          : `<button type="button" class="button-link user-delete-btn" data-requires-role="admin" data-username="${escapeHtml(user.username)}">remover</button>`;
         return `<tr>
           <td>${escapeHtml(user.username)}</td>
           <td>${ROLE_LABELS[user.role] || escapeHtml(user.role)}</td>
@@ -1130,6 +1140,7 @@ async function refreshUsers() {
         </tr>`;
       })
       .join("");
+    applyRoleVisibility();
   } catch {
     // mantém a lista anterior se o fetch falhar
   }
@@ -1185,9 +1196,93 @@ usersBody.addEventListener("click", async (event) => {
   }
 });
 
-// Log de auditoria (admin only) — só leitura.
+// API keys (admin cria/revoga, admin+auditor enxergam) — acesso
+// programático via Authorization: Bearer <chave>.
+const apiKeysBody = document.getElementById("api-keys-body");
+const apiKeysError = document.getElementById("api-keys-error");
+const apiKeyCreateForm = document.getElementById("api-key-create-form");
+const apiKeyNewValue = document.getElementById("api-key-new-value");
+const apiKeyNewValueText = document.getElementById("api-key-new-value-text");
+
+async function refreshApiKeys() {
+  try {
+    const response = await fetch("/api/auth/api-keys");
+    if (!response.ok) return;
+    const keys = await response.json();
+    apiKeysBody.innerHTML = keys
+      .map(
+        (key) => `<tr>
+          <td>${escapeHtml(key.name)}</td>
+          <td>${ROLE_LABELS[key.role] || escapeHtml(key.role)}</td>
+          <td>${escapeHtml(key.created_by || "—")}</td>
+          <td>${key.last_used_at ? formatDateTime(key.last_used_at) : "nunca usada"}</td>
+          <td><button type="button" class="button-link api-key-revoke-btn" data-requires-role="admin" data-key-id="${escapeHtml(key.id)}">revogar</button></td>
+        </tr>`
+      )
+      .join("");
+    applyRoleVisibility();
+  } catch {
+    // mantém a lista anterior se o fetch falhar
+  }
+}
+
+apiKeyCreateForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  apiKeysError.classList.add("hidden");
+  apiKeyNewValue.classList.add("hidden");
+  const name = document.getElementById("api-key-create-name").value.trim();
+  const role = document.getElementById("api-key-create-role").value;
+  const submitBtn = apiKeyCreateForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  try {
+    const response = await fetch("/api/auth/api-keys", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, role }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Erro ${response.status}`);
+    }
+    const body = await response.json();
+    apiKeyNewValueText.textContent = body.key;
+    apiKeyNewValue.classList.remove("hidden");
+    apiKeyCreateForm.reset();
+    await refreshApiKeys();
+  } catch (err) {
+    apiKeysError.textContent = err.message || "Não foi possível gerar a chave.";
+    apiKeysError.classList.remove("hidden");
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+apiKeysBody.addEventListener("click", async (event) => {
+  const button = event.target.closest(".api-key-revoke-btn");
+  if (!button) return;
+  if (!confirm("Revogar essa chave? Qualquer integração usando ela para de funcionar.")) return;
+  try {
+    const response = await fetch(`/api/auth/api-keys/${encodeURIComponent(button.dataset.keyId)}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Erro ${response.status}`);
+    }
+    await refreshApiKeys();
+  } catch (err) {
+    apiKeysError.textContent = err.message || "Não foi possível revogar a chave.";
+    apiKeysError.classList.remove("hidden");
+  }
+});
+
+// Log de auditoria (admin+auditor enxergam, ninguém escreve nele por essa
+// tela — é append-only) — inclui verificação de integridade da cadeia de
+// hashes (ver app/audit/log.py).
 const auditLogBody = document.getElementById("audit-log-body");
 const auditLogEmpty = document.getElementById("audit-log-empty");
+const auditLogVerifyBtn = document.getElementById("audit-log-verify-btn");
+const auditLogVerifyMessage = document.getElementById("audit-log-verify-message");
 
 async function refreshAuditLog() {
   try {
@@ -1209,6 +1304,22 @@ async function refreshAuditLog() {
     // mantém a lista anterior se o fetch falhar
   }
 }
+
+auditLogVerifyBtn.addEventListener("click", async () => {
+  auditLogVerifyBtn.disabled = true;
+  auditLogVerifyMessage.textContent = "Verificando...";
+  try {
+    const response = await fetch("/api/audit-log/verify");
+    const body = await response.json();
+    auditLogVerifyMessage.textContent = body.ok
+      ? "Cadeia íntegra — nenhuma linha foi adulterada."
+      : `Cadeia quebrada a partir da linha ${body.broken_at_id} — algo foi alterado fora da API.`;
+  } catch {
+    auditLogVerifyMessage.textContent = "Não foi possível verificar agora.";
+  } finally {
+    auditLogVerifyBtn.disabled = false;
+  }
+});
 
 refreshCurrentUser();
 

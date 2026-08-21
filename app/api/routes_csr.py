@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.acme.store import IssuedCertificate, acme_store
 from app.audit.log import audit_log
-from app.auth.dependencies import require_admin, require_session
+from app.auth.dependencies import require_operator, require_session
 from app.core.ratelimit import SlidingWindowRateLimiter
 from app.pki import csr as pki_csr
 from app.pki import keys as pki_keys
@@ -61,7 +61,7 @@ def _snapshot(pending: PendingCsr) -> dict:
 
 @router.post("", status_code=201)
 async def create_csr(
-    payload: CreateCsrRequest, request: Request, username: str = Depends(require_admin)
+    payload: CreateCsrRequest, request: Request, username: str = Depends(require_operator)
 ) -> dict:
     if not _rate_limiter.allow(_client_key(request)):
         raise HTTPException(
@@ -101,7 +101,7 @@ async def download_csr(csr_id: str):
 
 @router.post("/{csr_id}/complete")
 async def complete_csr(
-    csr_id: str, payload: CompleteCsrRequest, username: str = Depends(require_admin)
+    csr_id: str, payload: CompleteCsrRequest, username: str = Depends(require_operator)
 ) -> dict:
     pending = pending_csr_store.load(csr_id)
     if pending is None:
@@ -137,7 +137,7 @@ async def complete_csr(
 
 
 @router.delete("/{csr_id}")
-async def discard_csr(csr_id: str, username: str = Depends(require_admin)) -> dict:
+async def discard_csr(csr_id: str, username: str = Depends(require_operator)) -> dict:
     pending_csr_store.delete(csr_id)
     audit_log.record(username=username, action="csr_discarded", detail=csr_id)
     return {"ok": True}

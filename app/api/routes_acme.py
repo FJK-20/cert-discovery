@@ -13,7 +13,7 @@ from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, DnsMode
 from app.acme.renewal import renewal_manager
 from app.acme.store import DnsCredentials, acme_store
 from app.audit.log import audit_log
-from app.auth.dependencies import require_admin, require_session
+from app.auth.dependencies import require_admin, require_operator, require_session
 from app.core.ratelimit import SlidingWindowRateLimiter
 
 router = APIRouter(prefix="/api/acme", dependencies=[Depends(require_session)])
@@ -96,7 +96,7 @@ async def save_dns_credentials(
 
 @router.post("/renew")
 async def renew(
-    payload: RenewRequest, request: Request, username: str = Depends(require_admin)
+    payload: RenewRequest, request: Request, username: str = Depends(require_operator)
 ) -> dict:
     if not _rate_limiter.allow(_client_key(request)):
         raise HTTPException(
@@ -125,7 +125,7 @@ async def renew(
 
 @router.post("/renew/{job_id}/confirm-dns")
 async def confirm_dns(
-    job_id: str, request: Request, username: str = Depends(require_admin)
+    job_id: str, request: Request, username: str = Depends(require_operator)
 ) -> dict:
     if not _confirm_rate_limiter.allow(_client_key(request)):
         raise HTTPException(
@@ -200,7 +200,7 @@ async def download_fullchain(cert_id: str):
 
 
 @router.get("/certificates/{cert_id}/privkey.pem")
-async def download_private_key(cert_id: str, _admin: str = Depends(require_admin)):
+async def download_private_key(cert_id: str, _viewer: str = Depends(require_operator)):
     cert = acme_store.load_certificate(cert_id)
     if cert is None:
         raise HTTPException(status_code=404, detail="Certificado não encontrado.")

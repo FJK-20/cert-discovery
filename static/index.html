@@ -78,7 +78,7 @@
 
     <div id="screen-inventario" class="screen hidden">
     <section class="card">
-      <form id="scan-form" data-requires-admin>
+      <form id="scan-form" data-requires-role="admin,operador">
         <label for="domain">Domínio autorizado</label>
         <input
           id="domain"
@@ -188,7 +188,7 @@
            emissão — precisa ser irmão, não filho. -->
       <div id="acme-cloudflare-config" class="hidden">
         <div id="acme-dns-status" class="hint"></div>
-        <details id="acme-dns-form-details" data-requires-admin>
+        <details id="acme-dns-form-details" data-requires-role="admin">
           <summary>Configurar / atualizar token da Cloudflare</summary>
           <form id="acme-dns-form">
             <label for="cloudflare-token">Token de API da Cloudflare</label>
@@ -219,7 +219,7 @@
         </details>
       </div>
 
-      <form id="acme-renew-form" data-requires-admin>
+      <form id="acme-renew-form" data-requires-role="admin,operador">
         <label for="acme-domain">Domínio a emitir/renovar</label>
         <input
           id="acme-domain"
@@ -262,7 +262,7 @@
           propagou antes de avisar a Let's Encrypt. Se ainda não propagou,
           é só tentar de novo em alguns instantes.
         </p>
-        <button id="acme-confirm-dns-btn" type="button" data-requires-admin>Verificar e continuar</button>
+        <button id="acme-confirm-dns-btn" type="button" data-requires-role="admin,operador">Verificar e continuar</button>
         <p id="acme-confirm-dns-message" class="hint"></p>
       </div>
 
@@ -289,7 +289,7 @@
         escolhida e cola o certificado assinado de volta quando ele chegar.
       </p>
 
-      <form id="csr-generate-form" data-requires-admin>
+      <form id="csr-generate-form" data-requires-role="admin,operador">
         <label for="csr-domains">Domínios (um por linha — o primeiro vira o Common Name)</label>
         <textarea
           id="csr-domains"
@@ -320,7 +320,7 @@
         exige uma pessoa continua exigindo.
       </p>
       <p id="scheduler-status" class="hint"></p>
-      <button type="button" id="scheduler-check-now-btn" data-requires-admin>Verificar agora</button>
+      <button type="button" id="scheduler-check-now-btn" data-requires-role="admin,operador">Verificar agora</button>
       <p id="scheduler-check-message" class="hint"></p>
       <h3>Certificados</h3>
       <div id="acme-certs-list" class="hint">Nenhum certificado emitido ainda.</div>
@@ -419,7 +419,7 @@
         opcionais e independentes — configure um, os dois, ou nenhum.
       </p>
       <div id="notify-status" class="hint"></div>
-      <details id="notify-form-details" data-requires-admin>
+      <details id="notify-form-details" data-requires-role="admin">
         <summary>Configurar webhook / e-mail</summary>
         <form id="notify-form">
           <label for="notify-webhook-url">URL do webhook (opcional)</label>
@@ -456,18 +456,23 @@
           <button type="submit">Salvar</button>
         </form>
       </details>
-      <button type="button" id="notify-test-btn" data-requires-admin>Enviar notificação de teste</button>
+      <button type="button" id="notify-test-btn" data-requires-role="admin">Enviar notificação de teste</button>
       <p id="notify-test-message" class="hint"></p>
       <div id="notify-error" class="hidden error-banner"></div>
     </section>
 
-    <section class="card" data-requires-admin>
+    <section class="card" data-requires-role="admin,auditor">
       <h2>👥 Usuários</h2>
       <p class="hint">
-        Papel <strong>admin</strong> tem acesso completo (emitir/renovar
-        certificados, rodar scans, mudar configuração, gerenciar outros
-        usuários). Papel <strong>leitor</strong> só visualiza — inventário,
-        certificados, histórico — sem poder alterar nada.
+        Quatro papéis, sem hierarquia entre <strong>operador</strong> e
+        <strong>auditor</strong> — segregação de funções deliberada:
+        <strong>admin</strong> tem acesso completo, incluindo gerenciar
+        contas; <strong>operador</strong> roda o ciclo de vida de
+        certificado no dia a dia (scan, emissão, renovação, CSR) mas não
+        gerencia usuários nem vê o log de auditoria; <strong>auditor</strong>
+        enxerga usuários e log de auditoria pra fins de compliance, mas não
+        age em nada; <strong>leitor</strong> só visualiza
+        inventário/certificados/histórico.
       </p>
       <div class="table-wrapper">
         <table id="users-table">
@@ -482,7 +487,7 @@
           <tbody id="users-body"></tbody>
         </table>
       </div>
-      <details id="user-create-form-details">
+      <details id="user-create-form-details" data-requires-role="admin">
         <summary>Adicionar usuário</summary>
         <form id="user-create-form">
           <label for="user-create-username">Usuário</label>
@@ -500,6 +505,8 @@
           <label for="user-create-role">Papel</label>
           <select id="user-create-role">
             <option value="leitor" selected>Leitor (só visualiza)</option>
+            <option value="operador">Operador (ciclo de vida de certificado)</option>
+            <option value="auditor">Auditor (só compliance — usuários e log)</option>
             <option value="admin">Admin (acesso completo)</option>
           </select>
 
@@ -509,9 +516,65 @@
       <div id="users-error" class="hidden error-banner"></div>
     </section>
 
-    <section class="card" data-requires-admin>
+    <section class="card" data-requires-role="admin,auditor">
+      <h2>🔑 API Keys</h2>
+      <p class="hint">
+        Acesso programático (integração externa, scripts) — mesma
+        autenticação da interface, via <code>Authorization: Bearer
+        &lt;chave&gt;</code> em vez de cookie de sessão. Cada chave tem seu
+        próprio papel, igual um usuário. A chave só é exibida uma vez, no
+        momento em que é criada — perdeu, revoga e cria outra.
+      </p>
+      <div class="table-wrapper">
+        <table id="api-keys-table">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Papel</th>
+              <th>Criada por</th>
+              <th>Último uso</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="api-keys-body"></tbody>
+        </table>
+      </div>
+      <details id="api-key-create-form-details" data-requires-role="admin">
+        <summary>Gerar chave nova</summary>
+        <form id="api-key-create-form">
+          <label for="api-key-create-name">Nome (só pra identificar depois)</label>
+          <input id="api-key-create-name" type="text" autocomplete="off" required />
+
+          <label for="api-key-create-role">Papel</label>
+          <select id="api-key-create-role">
+            <option value="leitor" selected>Leitor</option>
+            <option value="operador">Operador</option>
+            <option value="auditor">Auditor</option>
+            <option value="admin">Admin</option>
+          </select>
+
+          <button type="submit">Gerar chave</button>
+        </form>
+      </details>
+      <div id="api-key-new-value" class="hidden">
+        <p class="hint">
+          Copie agora — essa é a única vez que a chave aparece em texto puro:
+        </p>
+        <code id="api-key-new-value-text" class="mono"></code>
+        <button type="button" class="copy-btn" data-copy-target="api-key-new-value-text">copiar</button>
+      </div>
+      <div id="api-keys-error" class="hidden error-banner"></div>
+    </section>
+
+    <section class="card" data-requires-role="admin,auditor">
       <h2>📜 Log de auditoria</h2>
-      <p class="hint">Quem fez o quê, quando — append-only, sobrevive a restart.</p>
+      <p class="hint">
+        Quem fez o quê, quando — append-only, sobrevive a restart, com
+        cadeia de hashes (cada linha guarda o hash da anterior) pra
+        detectar adulteração direta no arquivo, fora da API.
+      </p>
+      <button type="button" id="audit-log-verify-btn">Verificar integridade</button>
+      <p id="audit-log-verify-message" class="hint"></p>
       <div class="table-wrapper">
         <table id="audit-log-table">
           <thead>

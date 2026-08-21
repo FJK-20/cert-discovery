@@ -4,7 +4,9 @@ certificado assinado voltar de uma CA externa. Diferente dos jobs ACME
 um formulário de CA comercial, ou esperando o time de PKI interno
 assinar), então fica em disco, não em memória — o app pode reiniciar no
 meio da espera sem perder o CSR nem a chave gerada. Mesmo padrão de
-app/acme/store.py: JSON em `data/`, permissão 0600."""
+app/acme/store.py: JSON em `data/`, permissão 0600, chave privada
+criptografada em repouso (app/core/crypto.py) — o CSR em si (`csr_pem`)
+não é sensível (só a chave pública), fica em texto plano."""
 
 from __future__ import annotations
 
@@ -16,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.config import settings
+from app.core.crypto import DecryptionError, SecretBox
 
 
 @dataclass
@@ -30,18 +33,28 @@ class PendingCsr:
 class PendingCsrStore:
     def __init__(self, data_dir: Path) -> None:
         self._dir = data_dir / "pending_csrs"
+        self._box = SecretBox(data_dir)
+
+    def _decrypt(self, raw: dict) -> dict:
+        try:
+            raw["private_key_pem"] = self._box.decrypt(raw["private_key_pem"])
+        except DecryptionError:
+            pass  # dado legado em texto plano — recriptografado no próximo save()
+        return raw
 
     def save(self, pending: PendingCsr) -> None:
         self._dir.mkdir(parents=True, exist_ok=True)
         path = self._dir / f"{pending.id}.json"
-        path.write_text(json.dumps(asdict(pending)))
+        entry = asdict(pending)
+        entry["private_key_pem"] = self._box.encrypt(entry["private_key_pem"])
+        path.write_text(json.dumps(entry))
         os.chmod(path, 0o600)
 
     def load(self, csr_id: str) -> PendingCsr | None:
         path = self._dir / f"{csr_id}.json"
         if not path.exists():
             return None
-        return PendingCsr(**json.loads(path.read_text()))
+        return PendingCsr(**self._decrypt(json.loads(path.read_text())))
 
     def delete(self, csr_id: str) -> None:
         path = self._dir / f"{csr_id}.json"
@@ -51,7 +64,7 @@ class PendingCsrStore:
         if not self._dir.exists():
             return []
         paths = sorted(self._dir.glob("*.json"))
-        pending = [PendingCsr(**json.loads(p.read_text())) for p in paths]
+        pending = [PendingCsr(**self._decrypt(json.loads(p.read_text()))) for p in paths]
         return sorted(pending, key=lambda p: p.created_at, reverse=True)
 
 

@@ -1,5 +1,5 @@
-"""Persistência de usuários (multiusuário, dois papéis simples: `admin` e
-`leitor`) em um arquivo JSON local.
+"""Persistência de usuários (multiusuário, quatro papéis: `admin`,
+`operador`, `auditor` e `leitor`) em um arquivo JSON local.
 
 O arquivo sobrevive a reinícios do container via volume Docker (ver
 docker-compose.yml) e é criado com permissão 0600 (contém hash de senha e
@@ -17,6 +17,12 @@ Cada usuário ativa o próprio quando quiser, já autenticado, via
 `/api/auth/mfa/enroll` — nunca fica habilitado sem antes confirmar um
 código válido (`pending_totp_secret` -> `totp_secret` só depois de
 `verify_totp` passar).
+
+O segredo TOTP (ativo ou pendente) fica criptografado em repouso
+(app/core/crypto.py) — quem tiver o segredo em texto plano consegue gerar
+códigos MFA válidos pra sempre, então é tão sensível quanto uma senha. O
+hash de senha em si não precisa dessa camada (já é irreversível por
+natureza — scrypt).
 """
 
 from __future__ import annotations
@@ -27,10 +33,20 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from app.core.config import settings
+from app.core.crypto import DecryptionError, SecretBox
 
 ROLE_ADMIN = "admin"
+ROLE_OPERADOR = "operador"
+ROLE_AUDITOR = "auditor"
 ROLE_LEITOR = "leitor"
-ROLES = (ROLE_ADMIN, ROLE_LEITOR)
+# Segregação de funções deliberada (mesmo espírito do "quem aprova não
+# instala"): admin controla contas/config do sistema; operador roda o
+# ciclo de vida de certificados no dia a dia mas nunca vê o log de
+# auditoria nem gerencia usuários; auditor enxerga tudo pra fins de
+# compliance mas não consegue agir; leitor só vê o inventário/certificados.
+# Não são hierárquicos entre si (operador e auditor são papéis paralelos,
+# não um "acima" do outro) — só admin tem acesso a tudo.
+ROLES = (ROLE_ADMIN, ROLE_OPERADOR, ROLE_AUDITOR, ROLE_LEITOR)
 
 
 @dataclass
@@ -46,6 +62,7 @@ class UserAccount:
 class UserStore:
     def __init__(self, data_dir: Path) -> None:
         self._path = data_dir / "admin.json"
+        self._box = SecretBox(data_dir)
 
     def _load_all(self) -> dict[str, dict]:
         if not self._path.exists():
@@ -65,13 +82,30 @@ class UserStore:
         self._path.write_text(json.dumps(users))
         os.chmod(self._path, 0o600)
 
+    def _decrypt_secret(self, value: str | None) -> str | None:
+        if not value:
+            return value
+        try:
+            return self._box.decrypt(value)
+        except DecryptionError:
+            return value  # dado legado em texto plano — recriptografado no próximo save()
+
+    def _to_account(self, entry: dict) -> UserAccount:
+        entry = dict(entry)
+        entry["totp_secret"] = self._decrypt_secret(entry.get("totp_secret")) or ""
+        entry["pending_totp_secret"] = self._decrypt_secret(entry.get("pending_totp_secret"))
+        return UserAccount(**entry)
+
     def load(self, username: str) -> UserAccount | None:
         entry = self._load_all().get(username)
-        return UserAccount(**entry) if entry else None
+        return self._to_account(entry) if entry else None
 
     def save(self, account: UserAccount) -> None:
         users = self._load_all()
-        users[account.username] = asdict(account)
+        entry = asdict(account)
+        entry["totp_secret"] = self._box.encrypt(entry["totp_secret"])
+        entry["pending_totp_secret"] = self._box.encrypt(entry["pending_totp_secret"])
+        users[account.username] = entry
         self._save_all(users)
 
     def delete(self, username: str) -> None:
@@ -81,7 +115,7 @@ class UserStore:
 
     def list_all(self) -> list[UserAccount]:
         return sorted(
-            (UserAccount(**entry) for entry in self._load_all().values()),
+            (self._to_account(entry) for entry in self._load_all().values()),
             key=lambda u: u.username,
         )
 

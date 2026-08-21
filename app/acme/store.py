@@ -4,6 +4,14 @@ credenciais do provedor DNS e certificados emitidos.
 Mesmo padrão de app/auth/store.py: arquivos JSON em `data/`, permissão
 0600 — tudo aqui é sensível (chave de conta ACME, token de API do
 provedor DNS, e as próprias chaves privadas dos certificados emitidos).
+
+Os campos mais sensíveis (`account_key_pem`, `api_token`,
+`private_key_pem`) ficam criptografados em repouso (app/core/crypto.py) —
+só o texto plano em memória, nunca no arquivo. Dado gravado antes dessa
+camada existir (Fase 0-3) ainda é texto plano no disco: `_maybe_decrypt`
+detecta que não é um token Fernet válido e devolve como está, sem quebrar
+— e o próximo `save()` já grava criptografado, migração transparente sem
+precisar de um passo manual.
 """
 
 from __future__ import annotations
@@ -14,6 +22,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from app.core.config import settings
+from app.core.crypto import DecryptionError, SecretBox
 
 
 @dataclass
@@ -57,51 +66,75 @@ def _write_json(path: Path, data: dict) -> None:
     os.chmod(path, 0o600)
 
 
+def _maybe_decrypt(box: SecretBox, value: str | None) -> str | None:
+    if not value:
+        return value
+    try:
+        return box.decrypt(value)
+    except DecryptionError:
+        return value  # dado legado ainda em texto plano — recriptografado no próximo save()
+
+
 class AcmeStore:
     def __init__(self, data_dir: Path) -> None:
         self._accounts_path = data_dir / "acme_accounts.json"
         self._dns_path = data_dir / "dns_credentials.json"
         self._certs_dir = data_dir / "acme_certificates"
+        self._box = SecretBox(data_dir)
 
     def load_account(self, environment: str) -> AcmeAccount | None:
         if not self._accounts_path.exists():
             return None
         raw = json.loads(self._accounts_path.read_text())
         entry = raw.get(environment)
-        return AcmeAccount(**entry) if entry else None
+        if not entry:
+            return None
+        entry["account_key_pem"] = _maybe_decrypt(self._box, entry["account_key_pem"])
+        return AcmeAccount(**entry)
 
     def save_account(self, account: AcmeAccount) -> None:
         raw = {}
         if self._accounts_path.exists():
             raw = json.loads(self._accounts_path.read_text())
-        raw[account.environment] = asdict(account)
+        entry = asdict(account)
+        entry["account_key_pem"] = self._box.encrypt(entry["account_key_pem"])
+        raw[account.environment] = entry
         _write_json(self._accounts_path, raw)
 
     def load_dns_credentials(self) -> DnsCredentials | None:
         if not self._dns_path.exists():
             return None
-        return DnsCredentials(**json.loads(self._dns_path.read_text()))
+        raw = json.loads(self._dns_path.read_text())
+        raw["api_token"] = _maybe_decrypt(self._box, raw["api_token"])
+        return DnsCredentials(**raw)
 
     def save_dns_credentials(self, creds: DnsCredentials) -> None:
-        _write_json(self._dns_path, asdict(creds))
+        entry = asdict(creds)
+        entry["api_token"] = self._box.encrypt(entry["api_token"])
+        _write_json(self._dns_path, entry)
 
     def save_certificate(self, cert: IssuedCertificate) -> None:
         path = self._certs_dir / f"{cert.id}.json"
-        _write_json(path, asdict(cert))
+        entry = asdict(cert)
+        entry["private_key_pem"] = self._box.encrypt(entry["private_key_pem"])
+        _write_json(path, entry)
 
     def load_certificate(self, cert_id: str) -> IssuedCertificate | None:
         path = self._certs_dir / f"{cert_id}.json"
         if not path.exists():
             return None
-        return IssuedCertificate(**json.loads(path.read_text()))
+        raw = json.loads(path.read_text())
+        raw["private_key_pem"] = _maybe_decrypt(self._box, raw["private_key_pem"])
+        return IssuedCertificate(**raw)
 
     def list_certificates(self) -> list[IssuedCertificate]:
         if not self._certs_dir.exists():
             return []
-        certs = [
-            IssuedCertificate(**json.loads(path.read_text()))
-            for path in sorted(self._certs_dir.glob("*.json"))
-        ]
+        certs = []
+        for path in sorted(self._certs_dir.glob("*.json")):
+            raw = json.loads(path.read_text())
+            raw["private_key_pem"] = _maybe_decrypt(self._box, raw["private_key_pem"])
+            certs.append(IssuedCertificate(**raw))
         return sorted(certs, key=lambda c: c.issued_at, reverse=True)
 
 

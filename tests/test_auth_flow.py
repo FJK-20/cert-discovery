@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from app.audit.log import audit_log
 from app.auth import totp
+from app.auth.api_keys import api_key_store
 from app.auth.sessions import TokenStore
 from app.auth.store import UserStore
 from app.core.ratelimit import SlidingWindowRateLimiter
@@ -47,6 +48,7 @@ def _client(tmp_path, monkeypatch) -> TestClient:
     # atributo do objeto compartilhado (em vez de reatribuir o nome do
     # módulo) propaga pra todo mundo que já importou essa mesma instância.
     monkeypatch.setattr(audit_log, "_data_dir", tmp_path)
+    monkeypatch.setattr(api_key_store, "_data_dir", tmp_path)
     return TestClient(app)
 
 
@@ -271,6 +273,69 @@ def test_leitor_role_blocked_from_write_routes_but_allowed_to_read(tmp_path, mon
     forbidden = client.post("/api/auth/users", json={"username": "x", "password": "x" * 10})
     assert forbidden.status_code == 403
 
+    # leitor não enxerga log de auditoria nem lista de usuários — esses
+    # dois exigem admin ou auditor, não qualquer papel autenticado
+    assert client.get("/api/audit-log").status_code == 403
+    assert client.get("/api/auth/users").status_code == 403
+
+
+def test_operador_can_do_certificate_lifecycle_but_not_manage_users_or_system_config(
+    tmp_path, monkeypatch
+):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    client.post(
+        "/api/auth/users",
+        json={"username": "op", "password": "operatorpw1", "role": "operador"},
+    )
+    client.post("/api/auth/logout")
+    login = client.post("/api/auth/login", json={"username": "op", "password": "operatorpw1"})
+    assert login.json() == {"mfa_required": False}
+
+    # ciclo de vida de certificado (dia a dia) é permitido
+    assert _scan_status(client) == 200
+    assert client.post("/api/scheduler/check-now").status_code in (200, 429)
+
+    # configuração sensível do sistema e gestão de usuários continuam só admin
+    denied = client.post("/api/auth/users", json={"username": "x", "password": "x" * 10})
+    assert denied.status_code == 403
+    assert client.delete("/api/auth/users/admin").status_code == 403
+    dns_creds = client.post(
+        "/api/acme/dns-credentials", json={"api_token": "fake-token-000000000000000"}
+    )
+    assert dns_creds.status_code == 403
+    notify_cfg = client.post("/api/notifications/config", json={"webhook_url": "https://x.example"})
+    assert notify_cfg.status_code == 403
+
+    # nem log de auditoria nem lista de usuários — não é o papel dele
+    assert client.get("/api/audit-log").status_code == 403
+    assert client.get("/api/auth/users").status_code == 403
+
+
+def test_auditor_can_view_audit_log_and_users_but_cannot_act(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    client.post(
+        "/api/auth/users",
+        json={"username": "aud", "password": "auditorpw1", "role": "auditor"},
+    )
+    client.post("/api/auth/logout")
+    login = client.post("/api/auth/login", json={"username": "aud", "password": "auditorpw1"})
+    assert login.json() == {"mfa_required": False}
+
+    # visão de compliance liberada
+    assert client.get("/api/audit-log").status_code == 200
+    users = client.get("/api/auth/users")
+    assert users.status_code == 200
+    assert any(u["username"] == "admin" for u in users.json())
+
+    # mas não age em nada — nem ciclo de vida de certificado, nem gestão
+    # de usuários (só enxerga, não administra)
+    assert _scan_status(client) == 403
+    denied = client.post("/api/auth/users", json={"username": "x", "password": "x" * 10})
+    assert denied.status_code == 403
+    assert client.delete("/api/auth/users/admin").status_code == 403
+
     # chave privada é sensível mesmo sem ser "escrita" — também exige admin,
     # inclusive antes de checar se o certificado existe (403 nunca vaza
     # existência via um 404 primeiro)
@@ -323,3 +388,53 @@ def test_new_login_fails_for_a_deleted_user(tmp_path, monkeypatch):
         "/api/auth/login", json={"username": "viewer", "password": "readonlypw"}
     )
     assert bad_login.status_code == 401
+
+
+def test_api_key_authenticates_and_respects_its_role(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+
+    created = client.post("/api/auth/api-keys", json={"name": "ci-bot", "role": "operador"})
+    assert created.status_code == 201
+    body = created.json()
+    assert body["key"].startswith("certdisc_")
+    assert "key" not in client.get("/api/auth/api-keys").json()[0]  # nunca reexibida
+
+    # a chave nunca aparece na listagem — só id/name/role/timestamps
+    listed = client.get("/api/auth/api-keys").json()
+    assert listed[0]["name"] == "ci-bot"
+    assert listed[0]["role"] == "operador"
+
+    key_client = TestClient(app)
+    headers = {"Authorization": f"Bearer {body['key']}"}
+    assert key_client.post("/api/scan", json=SCAN_BODY, headers=headers).status_code == 200
+    # papel operador não gerencia usuários, nem com API key
+    forbidden = key_client.post(
+        "/api/auth/users", json={"username": "x", "password": "x" * 10}, headers=headers
+    )
+    assert forbidden.status_code == 403
+
+
+def test_revoked_api_key_stops_authenticating(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+
+    created = client.post("/api/auth/api-keys", json={"name": "ci-bot", "role": "leitor"})
+    key_id, raw_key = created.json()["id"], created.json()["key"]
+
+    key_client = TestClient(app)
+    headers = {"Authorization": f"Bearer {raw_key}"}
+    assert key_client.get("/api/acme/certificates", headers=headers).status_code == 200
+
+    revoked = client.delete(f"/api/auth/api-keys/{key_id}")
+    assert revoked.status_code == 200
+    assert key_client.get("/api/acme/certificates", headers=headers).status_code == 401
+
+
+def test_invalid_bearer_token_is_rejected(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+
+    key_client = TestClient(app)
+    headers = {"Authorization": "Bearer certdisc_isso-nunca-foi-criado"}
+    assert key_client.get("/api/acme/certificates", headers=headers).status_code == 401

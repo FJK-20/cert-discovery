@@ -1,7 +1,12 @@
 fastapi>=0.115,<1.0
 uvicorn[standard]>=0.32,<1.0
 httpx>=0.27,<1.0
-cryptography>=43,<44
+cryptography>=50,<51
 dnspython>=2.6,<3.0
 qrcode>=7.4,<8.0
 acme>=3.0,<6.0
+# pyopenssl é dependência transitiva do acme (que só exige >=25.0.0) — sem
+# pin explícito aqui, um install do zero (ex: CI, deploy novo) reinstala a
+# versão vulnerável de novo mesmo com cryptography corrigido acima
+# (achados PYSEC-2026-2268/2269, corrigidos a partir da 26.0.0).
+pyopenssl>=26.0,<27

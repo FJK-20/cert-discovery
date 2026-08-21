@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.acme.scheduler import scheduler
 from app.audit.log import audit_log
-from app.auth.dependencies import require_admin, require_session
+from app.auth.dependencies import require_admin, require_operator, require_session
 from app.core.ratelimit import SlidingWindowRateLimiter
 from app.notify import notifier
 from app.notify.store import NotificationConfig, notification_store
@@ -107,7 +107,7 @@ async def scheduler_status() -> dict:
 
 
 @router.post("/scheduler/check-now")
-async def scheduler_check_now(request: Request, _admin: str = Depends(require_admin)) -> dict:
+async def scheduler_check_now(request: Request, _viewer: str = Depends(require_operator)) -> dict:
     if not _check_now_rate_limiter.allow(_client_key(request)):
         raise HTTPException(status_code=429, detail="Muitas verificações — aguarde alguns minutos.")
     results = await scheduler.check_once()
