@@ -16,6 +16,7 @@ from app.api.routes_notify import router as notify_router
 from app.api.routes_scan import router as scan_router
 from app.auth.dependencies import SESSION_COOKIE_NAME, get_authenticated_username
 from app.auth.routes_auth import router as auth_router
+from app.auth.routes_saml import router as saml_router
 from app.core.config import settings
 from app.core.db import init_db
 from app.core.security_headers import SecurityHeadersMiddleware
@@ -42,6 +43,7 @@ app = FastAPI(
 )
 app.add_middleware(SecurityHeadersMiddleware, hsts_enabled=settings.cookie_secure)
 app.include_router(auth_router)
+app.include_router(saml_router)
 app.include_router(scan_router)
 app.include_router(acme_router)
 app.include_router(csr_router)

@@ -57,11 +57,30 @@ class UserAccount:
     totp_secret: str = ""
     mfa_enabled: bool = False
     pending_totp_secret: str | None = None
+    # "local" (usuário/senha, o padrão) ou "saml" (provisionado
+    # automaticamente no primeiro login SSO — ver app/auth/saml.py). Conta
+    # "saml" nunca tem senha utilizável (password_hash é lixo aleatório
+    # gerado na criação, nunca combina com nada) — login por senha pra
+    # essas contas é sempre rejeitado, mesmo que alguém tente string vazia.
+    auth_source: str = "local"
+
+
+@dataclass
+class SamlIdpConfig:
+    """Config do IdP (Entra ID ou qualquer IdP SAML 2.0 padrão) — nada
+    aqui é segredo: `x509_cert` é a chave PÚBLICA de assinatura do IdP,
+    existe justamente pra ser compartilhada (é o que prova que uma
+    resposta SAML veio mesmo do IdP configurado)."""
+
+    entity_id: str
+    sso_url: str
+    x509_cert: str
 
 
 class UserStore:
     def __init__(self, data_dir: Path) -> None:
         self._path = data_dir / "admin.json"
+        self._saml_path = data_dir / "saml_idp_config.json"
         self._box = SecretBox(data_dir)
 
     def _load_all(self) -> dict[str, dict]:
@@ -75,6 +94,7 @@ class UserStore:
             # Usuário migrado do formato antigo não tinha `role` — todo
             # usuário pré-existente era, por definição, o admin único.
             entry.setdefault("role", ROLE_ADMIN)
+            entry.setdefault("auth_source", "local")
         return raw
 
     def _save_all(self, users: dict[str, dict]) -> None:
@@ -124,6 +144,16 @@ class UserStore:
 
     def count_admins(self) -> int:
         return sum(1 for u in self.list_all() if u.role == ROLE_ADMIN)
+
+    def load_saml_config(self) -> SamlIdpConfig | None:
+        if not self._saml_path.exists():
+            return None
+        return SamlIdpConfig(**json.loads(self._saml_path.read_text()))
+
+    def save_saml_config(self, config: SamlIdpConfig) -> None:
+        self._saml_path.parent.mkdir(parents=True, exist_ok=True)
+        self._saml_path.write_text(json.dumps(asdict(config)))
+        os.chmod(self._saml_path, 0o600)
 
 
 user_store = UserStore(Path(settings.data_dir))

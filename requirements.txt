@@ -10,3 +10,8 @@ acme>=3.0,<6.0
 # versão vulnerável de novo mesmo com cryptography corrigido acima
 # (achados PYSEC-2026-2268/2269, corrigidos a partir da 26.0.0).
 pyopenssl>=26.0,<27
+# SSO via SAML 2.0 (Entra ID / Azure AD) — assinatura e validação de XML é
+# segurança crítica o bastante pra não reimplementar na mão (mesmo
+# raciocínio já aplicado à lib `acme` acima): usa a lib de referência da
+# OneLogin em vez de parsear XML assinado com as próprias mãos.
+python3-saml>=1.16,<2.0

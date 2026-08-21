@@ -38,6 +38,7 @@ def _client(tmp_path, monkeypatch) -> TestClient:
     unlimited = SlidingWindowRateLimiter(max_requests=1000, window_seconds=300)
     monkeypatch.setattr("app.auth.routes_auth.user_store", UserStore(tmp_path))
     monkeypatch.setattr("app.auth.dependencies.user_store", UserStore(tmp_path))
+    monkeypatch.setattr("app.auth.routes_saml.user_store", UserStore(tmp_path))
     monkeypatch.setattr("app.auth.routes_auth.session_store", session_store)
     monkeypatch.setattr("app.auth.routes_auth.pending_login_store", TokenStore(ttl_seconds=300))
     monkeypatch.setattr("app.auth.routes_auth._rate_limiter", unlimited)
@@ -438,3 +439,81 @@ def test_invalid_bearer_token_is_rejected(tmp_path, monkeypatch):
     key_client = TestClient(app)
     headers = {"Authorization": "Bearer certdisc_isso-nunca-foi-criado"}
     assert key_client.get("/api/acme/certificates", headers=headers).status_code == 401
+
+
+def test_saml_status_reports_not_configured_by_default(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    status = client.get("/api/auth/saml/status").json()
+    assert status["configured"] is False
+    assert status["login_url"] is None
+    assert status["sp_entity_id"].endswith("/api/auth/saml/metadata")
+    assert status["acs_url"].endswith("/api/auth/saml/acs")
+
+
+def test_saml_config_requires_admin(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    client.post(
+        "/api/auth/users",
+        json={"username": "viewer", "password": "readonlypw", "role": "leitor"},
+    )
+    client.post("/api/auth/logout")
+    client.post("/api/auth/login", json={"username": "viewer", "password": "readonlypw"})
+
+    forbidden = client.post(
+        "/api/auth/saml/config",
+        json={
+            "entity_id": "https://sts.windows.net/tenant/",
+            "sso_url": "https://login.microsoftonline.com/tenant/saml2",
+            "x509_cert": "FAKE",
+        },
+    )
+    assert forbidden.status_code == 403
+
+
+def test_saml_config_save_and_status_and_metadata(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+
+    saved = client.post(
+        "/api/auth/saml/config",
+        json={
+            "entity_id": "https://sts.windows.net/tenant/",
+            "sso_url": "https://login.microsoftonline.com/tenant/saml2",
+            "x509_cert": "FAKE-CERT",
+        },
+    )
+    assert saved.status_code == 200
+    body = saved.json()
+    assert body["acs_url"].endswith("/api/auth/saml/acs")
+
+    status = client.get("/api/auth/saml/status").json()
+    assert status["configured"] is True
+    assert status["login_url"] == "/api/auth/saml/login"
+
+    metadata = client.get("/api/auth/saml/metadata")
+    assert metadata.status_code == 200
+    assert "EntityDescriptor" in metadata.text
+
+
+def test_saml_metadata_404_when_not_configured(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    assert client.get("/api/auth/saml/metadata").status_code == 404
+
+
+def test_sso_provisioned_account_cannot_login_with_password(tmp_path, monkeypatch):
+    from app.auth import saml as saml_module
+    from app.auth.store import UserStore as US
+
+    store = US(tmp_path)
+    saml_module.provision_or_get_user(store, "sso.user@example.com")
+
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)  # precisa de um admin pro state virar needs_login
+    client.post("/api/auth/logout")
+
+    response = client.post(
+        "/api/auth/login", json={"username": "sso.user@example.com", "password": "qualquer"}
+    )
+    assert response.status_code == 401
+    assert "SSO" in response.json()["detail"]

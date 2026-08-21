@@ -8,6 +8,10 @@ services:
       - CERTDISC_MAX_CONCURRENCY=30
       - CERTDISC_RATE_LIMIT_RPM=6
       - CERTDISC_DATA_DIR=/app/data
+      # Entity ID / ACS URL do SSO SAML precisam ser fixos e bater com o
+      # que fica cadastrado no IdP — não dá pra derivar da request (varia
+      # entre acesso LAN e túnel público).
+      - CERTDISC_PUBLIC_BASE_URL=https://certmanager.fausto.app.br
     volumes:
       # Persiste o cadastro do admin (usuário, hash de senha, segredo TOTP)
       # entre reinícios do container.

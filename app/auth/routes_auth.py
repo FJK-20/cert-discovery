@@ -170,6 +170,15 @@ async def login(payload: LoginRequest, request: Request, response: Response) -> 
 
     username = payload.username.strip()
     account = user_store.load(username)
+    if account is not None and account.auth_source != "local":
+        # Conta provisionada por SSO nunca tem senha utilizável de
+        # propósito (ver app/auth/saml.py) — mensagem clara em vez do
+        # "usuário ou senha inválidos" genérico, que confundiria alguém
+        # tentando o método de login errado.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Esta conta usa login via SSO — use o botão de SSO em vez de usuário/senha.",
+        )
     password_ok = account is not None and verify_password(payload.password, account.password_hash)
     if account is None or not password_ok:
         raise HTTPException(

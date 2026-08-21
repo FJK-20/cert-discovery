@@ -481,6 +481,54 @@
       </section>
     </section>
 
+    <section class="card" data-requires-role="admin">
+      <h2>🔐 SSO (SAML)</h2>
+      <p class="hint">
+        Login single sign-on via SAML 2.0 (Entra ID ou qualquer IdP que
+        fale o protocolo padrão). Contas provisionadas por SSO entram como
+        <strong>leitor</strong> por padrão — promova o papel depois, em
+        "Usuários", se precisar. Contas locais (usuário/senha) continuam
+        funcionando normalmente e não são afetadas por essa configuração.
+      </p>
+      <div id="saml-status" class="hint"></div>
+      <div id="saml-sp-values">
+        <p class="hint">
+          Valores do nosso lado, pra cadastrar no IdP (no Entra ID:
+          Enterprise Applications → Nova aplicação → SAML SSO não
+          galeria):
+        </p>
+        <p class="hint">SP Entity ID (Identifier):</p>
+        <code id="saml-sp-entity-id" class="mono"></code>
+        <button type="button" class="copy-btn" data-copy-target="saml-sp-entity-id">copiar</button>
+
+        <p class="hint">ACS URL (Reply URL):</p>
+        <code id="saml-acs-url" class="mono"></code>
+        <button type="button" class="copy-btn" data-copy-target="saml-acs-url">copiar</button>
+
+        <p class="hint">
+          Ou aponte o IdP direto para a
+          <a id="saml-metadata-link" href="/api/auth/saml/metadata" target="_blank" rel="noopener">URL de metadata</a>
+          para importar automaticamente.
+        </p>
+      </div>
+      <details id="saml-config-form-details">
+        <summary>Configurar / atualizar IdP</summary>
+        <form id="saml-config-form">
+          <label for="saml-entity-id">Entity ID do IdP (Issuer)</label>
+          <input id="saml-entity-id" type="text" autocomplete="off" required />
+
+          <label for="saml-sso-url">SSO URL do IdP (Login URL)</label>
+          <input id="saml-sso-url" type="text" autocomplete="off" required />
+
+          <label for="saml-x509-cert">Certificado X.509 do IdP (base64, sem as linhas BEGIN/END)</label>
+          <textarea id="saml-x509-cert" rows="6" autocomplete="off" required></textarea>
+
+          <button type="submit">Salvar</button>
+        </form>
+      </details>
+      <div id="saml-error" class="hidden error-banner"></div>
+    </section>
+
     <section class="card">
       <h2>🔔 Notificações</h2>
       <p class="hint">

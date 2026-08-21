@@ -1209,6 +1209,9 @@ async function refreshCurrentUser() {
       refreshApiKeys();
       refreshAuditLog();
     }
+    if (currentUserRole === "admin") {
+      refreshSamlStatus();
+    }
   } catch {
     // mantém a UI como está se o fetch falhar
   }
@@ -1373,6 +1376,64 @@ apiKeysBody.addEventListener("click", async (event) => {
   } catch (err) {
     apiKeysError.textContent = err.message || "Não foi possível revogar a chave.";
     apiKeysError.classList.remove("hidden");
+  }
+});
+
+// SSO via SAML (admin only) — mostra os valores do SP pra cadastrar no
+// IdP e um formulário pra salvar os valores do IdP de volta.
+const samlStatus = document.getElementById("saml-status");
+const samlSpEntityId = document.getElementById("saml-sp-entity-id");
+const samlAcsUrl = document.getElementById("saml-acs-url");
+const samlConfigFormDetails = document.getElementById("saml-config-form-details");
+const samlConfigForm = document.getElementById("saml-config-form");
+const samlError = document.getElementById("saml-error");
+
+async function refreshSamlStatus() {
+  try {
+    const response = await fetch("/api/auth/saml/status");
+    if (!response.ok) return;
+    const status = await response.json();
+    samlSpEntityId.textContent = status.sp_entity_id;
+    samlAcsUrl.textContent = status.acs_url;
+    if (status.configured) {
+      samlStatus.textContent = "SSO configurado.";
+      samlConfigFormDetails.open = false;
+    } else {
+      samlStatus.textContent = "Nenhum IdP configurado ainda — login continua só por usuário/senha.";
+      samlConfigFormDetails.open = true;
+    }
+  } catch {
+    // mantém o status anterior se o fetch falhar
+  }
+}
+
+samlConfigForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  samlError.classList.add("hidden");
+  const payload = {
+    entity_id: document.getElementById("saml-entity-id").value.trim(),
+    sso_url: document.getElementById("saml-sso-url").value.trim(),
+    x509_cert: document.getElementById("saml-x509-cert").value.trim(),
+  };
+  const submitBtn = samlConfigForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  try {
+    const response = await fetch("/api/auth/saml/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Erro ${response.status}`);
+    }
+    samlConfigForm.reset();
+    await refreshSamlStatus();
+  } catch (err) {
+    samlError.textContent = err.message || "Não foi possível salvar a configuração do IdP.";
+    samlError.classList.remove("hidden");
+  } finally {
+    submitBtn.disabled = false;
   }
 });
 

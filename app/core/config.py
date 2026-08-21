@@ -67,5 +67,13 @@ class Settings:
         _int_env("CERTDISC_SCHEDULER_INTERVAL_SECONDS", 6 * 60 * 60)
     )
 
+    # SSO via SAML — o Entity ID e a Assertion Consumer Service URL do SP
+    # precisam ser fixos e coincidir com o que foi cadastrado no IdP (ver
+    # app/auth/saml.py), então não podem ser derivados da URL de cada
+    # requisição (o app responde tanto pela LAN quanto pelo domínio
+    # público, mas só o domínio público é alcançável pelo navegador
+    # redirecionado pelo IdP).
+    public_base_url: str = os.environ.get("CERTDISC_PUBLIC_BASE_URL", "http://localhost:8000")
+
 
 settings = Settings()

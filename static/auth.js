@@ -100,6 +100,21 @@ async function withSubmitLock(form, action) {
   }
 }
 
+// Independente do fluxo usuário/senha — só decide se mostra o botão de
+// SSO na tela de login, não bloqueia o carregamento se falhar.
+async function initSamlLogin() {
+  try {
+    const response = await fetch("/api/auth/saml/status");
+    const { configured, login_url } = await response.json();
+    if (!configured) return;
+    document.getElementById("saml-login-link").href = login_url;
+    document.getElementById("saml-login-divider").classList.remove("hidden");
+    document.getElementById("saml-login-link").classList.remove("hidden");
+  } catch {
+    // sem SSO configurado ou status indisponível — segue só com usuário/senha
+  }
+}
+
 async function init() {
   try {
     const response = await fetch("/api/auth/status");
@@ -114,6 +129,7 @@ async function init() {
       return;
     }
     showSection("loginPassword");
+    initSamlLogin();
   } catch (err) {
     showError("Não foi possível carregar a página de acesso. Recarregue e tente novamente.");
   }
