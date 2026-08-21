@@ -9,30 +9,48 @@ thread em `job.progress_message`/`job.state` são seguras porque cada
 atribuição é uma operação atômica sob o GIL; não há seção crítica maior
 que precise de lock aqui.
 
-Dois modos de resolver o desafio DNS-01 (`job.dns_mode`):
+Três modos de resolver o desafio DNS-01 (`job.dns_mode`):
 - `manual` (padrão, genérico): a thread de emissão cria o pedido na CA,
   publica o nome/valor do TXT esperado em `job.dns_record_*` e
   **bloqueia** num `threading.Event` até alguém chamar `confirm_dns()` —
   isso é o que a pessoa faz manualmente em qualquer provedor de DNS, sem
-  credencial nenhuma.
+  credencial nenhuma. Repete a cada emissão/renovação.
 - `cloudflare`: automático, mesmo fluxo de sempre (token de API cria e
   remove o TXT sozinho, só uma espera fixa de propagação).
+- `cname_delegation`: híbrido. Na primeira vez pra um domínio, pede uma
+  configuração manual única (um CNAME de `_acme-challenge.<domínio>` pra
+  uma zona que o app controla) — mesmo bloqueio via evento que o modo
+  manual usa, só que verificando CNAME em vez de TXT. Depois de
+  configurado, toda emissão futura daquele domínio detecta o CNAME já
+  existente e segue automática, sem token nenhum do lado do domínio
+  emitido (o TXT de cada desafio é publicado na zona de delegação, que o
+  app já controla via as credenciais Cloudflare salvas).
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import threading
 import time
 import uuid
 from datetime import UTC, datetime
 
-from app.acme import cloudflare
-from app.acme.dns_check import txt_record_contains
+from app.acme import cloudflare, dns_check
 from app.acme.issuance import IssuanceError, issue_certificate
 from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, DnsMode
 from app.acme.store import AcmeStore, IssuedCertificate, acme_store
 from app.core.config import settings
+
+_EVENT_BASED_MODES = (DnsMode.MANUAL, DnsMode.CNAME_DELEGATION)
+
+
+def _delegation_target(domain: str, delegation_zone: str) -> str:
+    """Nome estável e determinístico dentro da zona de delegação — mesmo
+    domínio emitido sempre mapeia pro mesmo alvo, então o CNAME que a
+    pessoa configura uma vez continua válido em toda renovação futura."""
+    digest = hashlib.sha256(domain.encode()).hexdigest()[:12]
+    return f"{digest}.acme-delegate.{delegation_zone.strip('.')}"
 
 
 class AcmeRenewalManager:
@@ -47,7 +65,7 @@ class AcmeRenewalManager:
         self._evict_expired()
         job = AcmeJob(domain=domain, environment=environment, dns_mode=dns_mode)
         self._jobs[job.id] = job
-        if dns_mode == DnsMode.MANUAL:
+        if dns_mode in _EVENT_BASED_MODES:
             self._confirm_events[job.id] = threading.Event()
         asyncio.create_task(self._run(job))
         return job
@@ -57,10 +75,11 @@ class AcmeRenewalManager:
 
     async def confirm_dns(self, job_id: str) -> tuple[bool, str]:
         """Chamado pela rota quando a pessoa clica "Verificar propagação e
-        continuar" no modo manual. Só destrava a thread de emissão se o
-        registro TXT esperado já estiver visível publicamente — evita
-        gastar uma tentativa de validação (rate limit da CA) num registro
-        que ainda não propagou."""
+        continuar" (modo manual) ou "Verificar CNAME e continuar" (primeira
+        configuração da delegação). Só destrava a thread de emissão se o
+        registro esperado já estiver visível publicamente — evita gastar
+        uma tentativa de validação (rate limit da CA) num registro que
+        ainda não propagou."""
         job = self._jobs.get(job_id)
         if job is None:
             return False, "Job não encontrado (pode ter expirado)."
@@ -69,15 +88,24 @@ class AcmeRenewalManager:
         if job.dns_record_name is None or job.dns_record_value is None:
             return False, "Estado interno inválido — tente emitir novamente."
 
-        found = await txt_record_contains(job.dns_record_name, job.dns_record_value, timeout=10.0)
-        if not found:
-            return (
-                False,
-                "Registro TXT ainda não encontrado — aguarde a propagação e tente de novo.",
+        if job.dns_record_type == "CNAME":
+            found = await dns_check.cname_matches(
+                job.dns_record_name, job.dns_record_value, timeout=10.0
+            )
+            not_found_message = "CNAME ainda não encontrado — aguarde a propagação e tente de novo."
+        else:
+            found = await dns_check.txt_record_contains(
+                job.dns_record_name, job.dns_record_value, timeout=10.0
+            )
+            not_found_message = (
+                "Registro TXT ainda não encontrado — aguarde a propagação e tente de novo."
             )
 
+        if not found:
+            return False, not_found_message
+
         job.state = AcmeJobState.RUNNING
-        job.progress_message = "DNS confirmado — avisando a CA..."
+        job.progress_message = "DNS confirmado — continuando..."
         event = self._confirm_events.get(job_id)
         if event is not None:
             event.set()
@@ -94,7 +122,7 @@ class AcmeRenewalManager:
         job.state = AcmeJobState.RUNNING
         budget = (
             settings.acme_manual_dns_budget_seconds
-            if job.dns_mode == DnsMode.MANUAL
+            if job.dns_mode in _EVENT_BASED_MODES
             else settings.acme_job_budget_seconds
         )
         try:
@@ -116,6 +144,8 @@ class AcmeRenewalManager:
     def _issue_sync(self, job: AcmeJob) -> None:
         if job.dns_mode == DnsMode.CLOUDFLARE:
             result = self._issue_via_cloudflare(job)
+        elif job.dns_mode == DnsMode.CNAME_DELEGATION:
+            result = self._issue_via_cname_delegation(job)
         else:
             result = self._issue_via_manual_dns(job)
 
@@ -184,6 +214,7 @@ class AcmeRenewalManager:
 
     def _issue_via_manual_dns(self, job: AcmeJob):
         def set_dns_challenge(record_name: str, value: str) -> None:
+            job.dns_record_type = "TXT"
             job.dns_record_name = record_name
             job.dns_record_value = value
             job.state = AcmeJobState.AWAITING_DNS
@@ -194,12 +225,7 @@ class AcmeRenewalManager:
             job.progress_message = "Emitido — pode remover o registro TXT do seu DNS (opcional)."
 
         def wait_for_dns_ready() -> None:
-            event = self._confirm_events.get(job.id)
-            if event is None:
-                raise IssuanceError("Estado interno inválido — tente emitir novamente.")
-            confirmed = event.wait(timeout=settings.acme_manual_dns_budget_seconds)
-            if not confirmed:
-                raise IssuanceError("Tempo esgotado aguardando confirmação do registro DNS.")
+            self._block_on_confirmation(job)
 
         return issue_certificate(
             domain=job.domain,
@@ -212,6 +238,73 @@ class AcmeRenewalManager:
             total_budget_seconds=settings.acme_manual_dns_budget_seconds,
             on_progress=lambda message: setattr(job, "progress_message", message),
         )
+
+    def _issue_via_cname_delegation(self, job: AcmeJob):
+        creds = self._store.load_dns_credentials()
+        if creds is None or not creds.delegation_zone:
+            raise IssuanceError(
+                "Nenhuma zona de delegação configurada. Configure o token e o "
+                "domínio de delegação da Cloudflare (em Emissão → Configurar "
+                "token) antes de usar este modo."
+            )
+
+        challenge_hostname = f"_acme-challenge.{job.domain}"
+        delegation_target = _delegation_target(job.domain, creds.delegation_zone)
+
+        already_delegated = asyncio.run(
+            dns_check.cname_matches(challenge_hostname, delegation_target, timeout=10.0)
+        )
+        if not already_delegated:
+            job.dns_record_type = "CNAME"
+            job.dns_record_name = challenge_hostname
+            job.dns_record_value = delegation_target
+            job.state = AcmeJobState.AWAITING_DNS
+            job.progress_message = "Aguardando você configurar o CNAME de delegação (uma vez só)..."
+            self._block_on_confirmation(job)
+            job.progress_message = "CNAME confirmado — prosseguindo com a emissão automática..."
+
+        def set_dns_challenge(_record_name: str, value: str) -> tuple[str, str]:
+            # O desafio de verdade é publicado no ALVO do CNAME (a zona de
+            # delegação que o app controla), não no nome original do
+            # domínio emitido — é isso que faz a validação seguir o CNAME.
+            job.progress_message = f"Criando registro TXT em {delegation_target}..."
+            try:
+                zone_id = cloudflare.find_zone_id(creds.delegation_zone, creds.api_token)
+                record_id = cloudflare.create_txt_record(
+                    zone_id, delegation_target, value, creds.api_token
+                )
+            except cloudflare.CloudflareError as exc:
+                raise IssuanceError(f"Falha ao configurar o DNS de delegação: {exc}") from exc
+            return (zone_id, record_id)
+
+        def clear_dns_challenge(handle: tuple[str, str]) -> None:
+            zone_id, record_id = handle
+            cloudflare.delete_txt_record(zone_id, record_id, creds.api_token)
+
+        def wait_for_dns_ready() -> None:
+            time.sleep(settings.acme_dns_propagation_wait_seconds)
+
+        issuance_budget = max(30.0, settings.acme_job_budget_seconds - 20.0)
+
+        return issue_certificate(
+            domain=job.domain,
+            environment=job.environment.value,
+            directory_url=self._directory_url(job),
+            store=self._store,
+            set_dns_challenge=set_dns_challenge,
+            clear_dns_challenge=clear_dns_challenge,
+            wait_for_dns_ready=wait_for_dns_ready,
+            total_budget_seconds=issuance_budget,
+            on_progress=lambda message: setattr(job, "progress_message", message),
+        )
+
+    def _block_on_confirmation(self, job: AcmeJob) -> None:
+        event = self._confirm_events.get(job.id)
+        if event is None:
+            raise IssuanceError("Estado interno inválido — tente emitir novamente.")
+        confirmed = event.wait(timeout=settings.acme_manual_dns_budget_seconds)
+        if not confirmed:
+            raise IssuanceError("Tempo esgotado aguardando confirmação do registro DNS.")
 
 
 renewal_manager = AcmeRenewalManager()

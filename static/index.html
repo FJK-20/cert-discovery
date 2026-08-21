@@ -193,6 +193,21 @@
               placeholder="token com permissão Zone:DNS:Edit"
               required
             />
+            <label for="cloudflare-delegation-zone">
+              Domínio de delegação (opcional — só pro modo "Delegação CNAME")
+            </label>
+            <input
+              id="cloudflare-delegation-zone"
+              type="text"
+              autocomplete="off"
+              placeholder="delegate.seudominio.com.br (zona que esse token controla)"
+            />
+            <p class="hint">
+              Deixe em branco se só for usar o modo automático direto. Pra
+              delegação CNAME, informe um domínio/subdomínio que esse token
+              controla — é onde os desafios de qualquer domínio delegado vão
+              ser publicados.
+            </p>
             <button type="submit">Salvar e validar token</button>
           </form>
         </details>
@@ -216,8 +231,9 @@
 
         <label for="acme-dns-mode">Como validar o domínio</label>
         <select id="acme-dns-mode">
-          <option value="manual" selected>Manual — eu crio o registro TXT (qualquer provedor de DNS)</option>
-          <option value="cloudflare">Automático via Cloudflare (precisa de token de API)</option>
+          <option value="manual" selected>Manual — eu crio o registro TXT a cada emissão (qualquer provedor de DNS)</option>
+          <option value="cname_delegation">Delegação CNAME — configuro uma vez, depois é automático (precisa de token de API numa zona sua)</option>
+          <option value="cloudflare">Automático via Cloudflare (precisa de token de API na zona do domínio emitido)</option>
         </select>
 
         <label class="consent">
@@ -229,18 +245,18 @@
       </form>
 
       <div id="acme-dns-instructions" class="hidden dns-instructions">
-        <h3>Crie este registro no DNS do seu domínio</h3>
+        <h3 id="acme-dns-instr-title">Crie este registro no DNS do seu domínio</h3>
         <dl class="dns-record-box">
-          <dt>Tipo</dt><dd>TXT</dd>
+          <dt>Tipo</dt><dd id="acme-dns-instr-type">TXT</dd>
           <dt>Nome</dt><dd><code id="acme-dns-instr-name"></code> <button type="button" class="copy-btn" data-copy-target="acme-dns-instr-name">copiar</button></dd>
           <dt>Valor</dt><dd><code id="acme-dns-instr-value"></code> <button type="button" class="copy-btn" data-copy-target="acme-dns-instr-value">copiar</button></dd>
         </dl>
-        <p class="hint">
+        <p id="acme-dns-instr-hint" class="hint">
           Depois de criar o registro, clique abaixo — verificamos se já
           propagou antes de avisar a Let's Encrypt. Se ainda não propagou,
           é só tentar de novo em alguns instantes.
         </p>
-        <button id="acme-confirm-dns-btn" type="button">Verificar propagação e continuar</button>
+        <button id="acme-confirm-dns-btn" type="button">Verificar e continuar</button>
         <p id="acme-confirm-dns-message" class="hint"></p>
       </div>
 

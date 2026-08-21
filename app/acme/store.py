@@ -27,6 +27,11 @@ class AcmeAccount:
 class DnsCredentials:
     provider: str
     api_token: str
+    # Domínio (zona) que o token controla, usado como alvo da delegação
+    # CNAME — ver DnsMode.CNAME_DELEGATION em app/acme/renewal.py. Opcional:
+    # sem isso, o token só serve pro modo "cloudflare" direto (zona igual
+    # ao domínio emitido).
+    delegation_zone: str | None = None
 
 
 @dataclass

@@ -470,8 +470,11 @@ const acmeDnsForm = document.getElementById("acme-dns-form");
 const acmeRenewForm = document.getElementById("acme-renew-form");
 const acmeRenewBtn = document.getElementById("acme-renew-btn");
 const acmeDnsInstructions = document.getElementById("acme-dns-instructions");
+const acmeDnsInstrTitle = document.getElementById("acme-dns-instr-title");
+const acmeDnsInstrType = document.getElementById("acme-dns-instr-type");
 const acmeDnsInstrName = document.getElementById("acme-dns-instr-name");
 const acmeDnsInstrValue = document.getElementById("acme-dns-instr-value");
+const acmeDnsInstrHint = document.getElementById("acme-dns-instr-hint");
 const acmeConfirmDnsBtn = document.getElementById("acme-confirm-dns-btn");
 const acmeConfirmDnsMessage = document.getElementById("acme-confirm-dns-message");
 const acmeProgress = document.getElementById("acme-progress");
@@ -486,8 +489,12 @@ const acmeCertsList = document.getElementById("acme-certs-list");
 const ACME_TERMINAL_STATES = new Set(["done", "failed"]);
 let currentAcmeJobId = null;
 
+// Cloudflare e delegação CNAME compartilham a mesma credencial (a
+// delegação usa o token pra publicar TXT na zona de delegação, não na
+// zona do domínio emitido) — os dois precisam do painel de configuração.
 acmeDnsMode.addEventListener("change", () => {
-  acmeCloudflareConfig.classList.toggle("hidden", acmeDnsMode.value !== "cloudflare");
+  const needsCredentials = acmeDnsMode.value === "cloudflare" || acmeDnsMode.value === "cname_delegation";
+  acmeCloudflareConfig.classList.toggle("hidden", !needsCredentials);
 });
 
 document.querySelectorAll(".copy-btn[data-copy-target]").forEach((btn) => {
@@ -524,7 +531,9 @@ async function refreshAcmeStatus() {
     if (!response.ok) return;
     const status = await response.json();
     if (status.dns_configured) {
-      acmeDnsStatus.textContent = `DNS configurado (provedor: ${status.dns_provider}).`;
+      acmeDnsStatus.textContent = status.delegation_zone
+        ? `DNS configurado (provedor: ${status.dns_provider}, zona de delegação: ${status.delegation_zone}).`
+        : `DNS configurado (provedor: ${status.dns_provider}). Sem zona de delegação — modo "Delegação CNAME" não vai funcionar até configurar uma.`;
       acmeDnsFormDetails.open = false;
     } else {
       acmeDnsStatus.textContent = "Nenhum provedor de DNS configurado ainda.";
@@ -567,13 +576,14 @@ acmeDnsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   hideAcmeError();
   const token = document.getElementById("cloudflare-token").value.trim();
+  const delegationZone = document.getElementById("cloudflare-delegation-zone").value.trim();
   const submitBtn = acmeDnsForm.querySelector("button[type=submit]");
   submitBtn.disabled = true;
   try {
     const response = await fetch("/api/acme/dns-credentials", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_token: token }),
+      body: JSON.stringify({ api_token: token, delegation_zone: delegationZone || null }),
     });
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
@@ -623,8 +633,16 @@ acmeRenewForm.addEventListener("submit", async (event) => {
 
       if (job.state === "awaiting_dns") {
         acmeProgress.classList.add("hidden");
+        const isCname = job.dns_record_type === "CNAME";
+        acmeDnsInstrTitle.textContent = isCname
+          ? "Configure este CNAME uma vez (fica valendo pras próximas renovações)"
+          : "Crie este registro no DNS do seu domínio";
+        acmeDnsInstrType.textContent = job.dns_record_type || "TXT";
         acmeDnsInstrName.textContent = job.dns_record_name || "";
         acmeDnsInstrValue.textContent = job.dns_record_value || "";
+        acmeDnsInstrHint.textContent = isCname
+          ? "Depois de criar o CNAME, clique abaixo — verificamos se já propagou. A partir da próxima vez, esse passo nem aparece mais: a emissão fica automática."
+          : "Depois de criar o registro, clique abaixo — verificamos se já propagou antes de avisar a Let's Encrypt. Se ainda não propagou, é só tentar de novo em alguns instantes.";
         acmeDnsInstructions.classList.remove("hidden");
         return;
       }

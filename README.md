@@ -147,23 +147,33 @@ Além do inventário, a aplicação emite/renova certificados **reais** via
 desafio **DNS-01** — a mesma prova de posse de domínio que qualquer CA usa,
 mas sem depender de expor a porta 80 do host (diferente do desafio HTTP-01).
 
-Dois jeitos de resolver o desafio, escolhidos na tela de Emissão:
+Três jeitos de resolver o desafio, escolhidos na tela de Emissão:
 
 - **Manual (padrão)** — a aplicação calcula o registro TXT
   (`_acme-challenge.<domínio>`) e mostra o nome/valor pra você criar em
   **qualquer** provedor de DNS, sem credencial nenhuma. Um botão "Verificar
   propagação e continuar" confirma via consulta DNS real antes de avisar a
   Let's Encrypt — evita gastar uma tentativa de validação (rate limit da CA)
-  num registro que ainda não propagou.
-- **Automático via Cloudflare (opcional)** — pra quem quer zero cliques além
-  do primeiro: um [API Token](https://dash.cloudflare.com/profile/api-tokens)
-  (não a Global API Key) com permissão **Zone → DNS → Edit**, restrito à(s)
-  zona(s) que você usa, cria e remove o TXT sozinho. Token validado antes de
-  salvar (`data/dns_credentials.json`, permissão `0600`), nunca reexibido.
-  Cloudflare é o primeiro de vários provedores possíveis — a interface
-  interna (`set_dns_challenge`/`clear_dns_challenge` em
-  `app/acme/issuance.py`) já é genérica o bastante pra outro provedor
-  plugar sem mudar o fluxo ACME em si.
+  num registro que ainda não propagou. Repete a cada emissão/renovação.
+- **Delegação CNAME (configuração única)** — meio-termo entre o manual e o
+  automático. Na primeira vez pra um domínio, você configura **uma vez** um
+  `CNAME _acme-challenge.<domínio> → <hash>.acme-delegate.<sua zona>`
+  apontando pra uma zona que você controla via API. Dali em diante, toda
+  emissão/renovação futura *daquele domínio* detecta o CNAME já existente e
+  segue 100% automática — sem token nenhum do lado do domínio emitido, e
+  sem repetir o passo manual. É a mesma técnica que os principais plugins
+  DNS do Certbot documentam pra provedores sem API própria.
+- **Automático via Cloudflare (opcional)** — pra quem quer zero cliques
+  desde a primeira emissão, direto na zona do domínio emitido: um
+  [API Token](https://dash.cloudflare.com/profile/api-tokens) (não a Global
+  API Key) com permissão **Zone → DNS → Edit** cria e remove o TXT sozinho.
+
+O token da Cloudflare (usado pelos dois últimos modos) é validado antes de
+salvar (`data/dns_credentials.json`, permissão `0600`), nunca reexibido.
+Cloudflare é o primeiro de vários provedores possíveis — a interface
+interna (`set_dns_challenge`/`clear_dns_challenge` em
+`app/acme/issuance.py`) já é genérica o bastante pra outro provedor plugar
+sem mudar o fluxo ACME em si.
 
 ### Como usar
 
@@ -173,8 +183,9 @@ Dois jeitos de resolver o desafio, escolhidos na tela de Emissão:
    **Produção**: certificado real, confiável, mas sujeito ao
    [rate limit do Let's Encrypt](https://letsencrypt.org/docs/rate-limits/).
 3. No modo manual, crie o registro TXT mostrado na tela e clique em
-   "Verificar propagação e continuar" (pode tentar de novo se ainda não
-   propagou). No modo Cloudflare, isso é automático.
+   "Verificar e continuar" (pode tentar de novo se ainda não propagou). Na
+   delegação CNAME, isso só acontece na primeira vez por domínio — depois
+   é automático. No modo Cloudflare, é sempre automático.
 4. Acompanhe o progresso em tempo real. Ao concluir, baixe `fullchain.pem`
    e `privkey.pem`.
 
@@ -185,11 +196,15 @@ flowchart LR
     A[Cria/reutiliza conta ACME<br/>por ambiente] --> B[Cria pedido de<br/>certificado no Let's Encrypt]
     B --> C{Modo de validação}
     C -->|Manual| D1[Mostra TXT na tela<br/>e espera confirmação]
+    C -->|Delegação CNAME,<br/>1ª vez| D3a[Mostra CNAME na tela<br/>e espera confirmação]
+    C -->|Delegação CNAME,<br/>já configurado| D3b[Cria TXT na zona<br/>de delegação, automático]
     C -->|Cloudflare| D2[Cria TXT via API<br/>automaticamente]
     D1 --> E[Let's Encrypt valida<br/>o desafio DNS-01]
+    D3a --> D3b
+    D3b --> E
     D2 --> E
     E --> F[Emite o certificado]
-    F --> G[Remove o TXT<br/>best-effort no modo Cloudflare]
+    F --> G[Remove o TXT<br/>best-effort nos modos automáticos]
 ```
 
 A conta ACME (chave privada da conta, não do certificado) é criada uma vez

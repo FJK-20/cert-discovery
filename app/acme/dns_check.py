@@ -19,3 +19,16 @@ async def txt_record_contains(hostname: str, expected_value: str, *, timeout: fl
         if value == expected_value:
             return True
     return False
+
+
+async def cname_matches(hostname: str, expected_target: str, *, timeout: float) -> bool:
+    """True se `hostname` for um CNAME apontando pro `expected_target`
+    (usado no modo de delegação: a pessoa configura o CNAME uma vez, e
+    daí em diante toda renovação usa esse mesmo registro sem precisar de
+    mais nenhuma ação manual)."""
+    try:
+        answer = await dns.asyncresolver.resolve(hostname, "CNAME", lifetime=timeout)
+    except (dns.exception.DNSException, OSError):
+        return False
+    expected = expected_target.strip(".").lower()
+    return any(str(rdata.target).strip(".").lower() == expected for rdata in answer)

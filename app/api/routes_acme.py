@@ -30,6 +30,7 @@ _TERMINAL_STATES = {AcmeJobState.DONE, AcmeJobState.FAILED}
 
 class DnsCredentialsRequest(BaseModel):
     api_token: str = Field(..., min_length=1, max_length=500)
+    delegation_zone: str | None = Field(default=None, max_length=253)
 
 
 class RenewRequest(BaseModel):
@@ -52,6 +53,7 @@ def _job_snapshot(job: AcmeJob) -> dict:
         "progress_message": job.progress_message,
         "error": job.error,
         "certificate_id": job.certificate_id,
+        "dns_record_type": job.dns_record_type,
         "dns_record_name": job.dns_record_name,
         "dns_record_value": job.dns_record_value,
     }
@@ -63,6 +65,7 @@ async def acme_status() -> dict:
     return {
         "dns_configured": creds is not None,
         "dns_provider": creds.provider if creds else None,
+        "delegation_zone": creds.delegation_zone if creds else None,
         "accounts": {
             "staging": acme_store.load_account("staging") is not None,
             "production": acme_store.load_account("production") is not None,
@@ -78,7 +81,10 @@ async def save_dns_credentials(payload: DnsCredentialsRequest) -> dict:
             status_code=400,
             detail="Token da Cloudflare inválido ou inativo.",
         )
-    creds = DnsCredentials(provider="cloudflare", api_token=payload.api_token)
+    delegation_zone = payload.delegation_zone.strip().lower() if payload.delegation_zone else None
+    creds = DnsCredentials(
+        provider="cloudflare", api_token=payload.api_token, delegation_zone=delegation_zone or None
+    )
     acme_store.save_dns_credentials(creds)
     return {"ok": True}
 
@@ -90,7 +96,8 @@ async def renew(payload: RenewRequest, request: Request) -> dict:
             status_code=429,
             detail="Muitas solicitações de emissão — aguarde alguns minutos.",
         )
-    if payload.dns_mode == DnsMode.CLOUDFLARE and acme_store.load_dns_credentials() is None:
+    needs_credentials = payload.dns_mode in (DnsMode.CLOUDFLARE, DnsMode.CNAME_DELEGATION)
+    if needs_credentials and acme_store.load_dns_credentials() is None:
         raise HTTPException(
             status_code=400,
             detail="Configure as credenciais de DNS (Cloudflare) antes de emitir um certificado.",

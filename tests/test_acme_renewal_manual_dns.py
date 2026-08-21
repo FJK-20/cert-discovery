@@ -59,7 +59,7 @@ def test_manual_mode_blocks_until_confirm_dns_succeeds(tmp_path, monkeypatch):
         async def not_found(hostname, expected, *, timeout):
             return False
 
-        monkeypatch.setattr(renewal_module, "txt_record_contains", not_found)
+        monkeypatch.setattr(renewal_module.dns_check, "txt_record_contains", not_found)
         ok, message = await manager.confirm_dns(job.id)
         assert ok is False
         assert "não encontrado" in message
@@ -71,7 +71,7 @@ def test_manual_mode_blocks_until_confirm_dns_succeeds(tmp_path, monkeypatch):
             assert expected == job.dns_record_value
             return True
 
-        monkeypatch.setattr(renewal_module, "txt_record_contains", found)
+        monkeypatch.setattr(renewal_module.dns_check, "txt_record_contains", found)
         ok, _ = await manager.confirm_dns(job.id)
         assert ok is True
 
