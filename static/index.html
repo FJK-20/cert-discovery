@@ -273,6 +273,32 @@
 
       <div id="acme-error" class="hidden error-banner"></div>
     </section>
+
+    <section id="csr-card" class="card">
+      <h2>📝 Certificado manual (CSR)</h2>
+      <p class="hint">
+        Pra qualquer CA que não fale ACME — CA interna da empresa,
+        certificado comprado manualmente de um fornecedor. A chave privada
+        é gerada aqui e nunca sai do servidor; você leva o CSR pra CA
+        escolhida e cola o certificado assinado de volta quando ele chegar.
+      </p>
+
+      <form id="csr-generate-form">
+        <label for="csr-domains">Domínios (um por linha — o primeiro vira o Common Name)</label>
+        <textarea
+          id="csr-domains"
+          rows="3"
+          placeholder="app.exemplo.com.br&#10;www.exemplo.com.br"
+          required
+        ></textarea>
+        <button type="submit">Gerar CSR</button>
+      </form>
+
+      <div id="csr-error" class="hidden error-banner"></div>
+
+      <h3>CSRs aguardando certificado</h3>
+      <div id="csr-pending-list" class="hint">Nenhum CSR pendente.</div>
+    </section>
     </div>
 
     <div id="screen-renovacao" class="screen hidden">

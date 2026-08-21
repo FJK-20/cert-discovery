@@ -698,6 +698,44 @@ footer {
   margin-bottom: 0.75rem;
 }
 
+/* CSR manual — cada pendência é seu próprio cartão dentro da lista */
+.csr-pending-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  margin-bottom: 0.9rem;
+  background: var(--bg);
+}
+
+.csr-pending-item:last-child {
+  margin-bottom: 0;
+}
+
+.csr-pending-item .csr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin: 0.5rem 0 1rem;
+}
+
+.csr-pending-item textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.csr-discard-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--expired);
+  padding: 0.4rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  min-height: 44px;
+}
+
 /* Instruções de validação manual do domínio (TXT a criar) */
 .dns-instructions {
   border: 1px solid var(--border);

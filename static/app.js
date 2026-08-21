@@ -706,6 +706,122 @@ acmeConfirmDnsBtn.addEventListener("click", async () => {
 refreshAcmeStatus();
 refreshAcmeCertificates();
 
+// CSR manual — pra CA que não fala ACME. Gera chave+CSR aqui (a chave
+// nunca sai do servidor), a pessoa leva o CSR pra CA escolhida e cola o
+// certificado assinado de volta quando chegar; os dois caminhos (esse e o
+// ACME acima) convergem na mesma lista de certificados emitidos.
+const csrGenerateForm = document.getElementById("csr-generate-form");
+const csrError = document.getElementById("csr-error");
+const csrPendingList = document.getElementById("csr-pending-list");
+
+function showCsrError(message) {
+  csrError.textContent = message;
+  csrError.classList.remove("hidden");
+}
+
+function hideCsrError() {
+  csrError.classList.add("hidden");
+  csrError.textContent = "";
+}
+
+async function refreshPendingCsrs() {
+  try {
+    const response = await fetch("/api/csr");
+    if (!response.ok) return;
+    const items = await response.json();
+    if (!items.length) {
+      csrPendingList.innerHTML = "Nenhum CSR pendente.";
+      return;
+    }
+    csrPendingList.innerHTML = items
+      .map(
+        (item) => `<div class="csr-pending-item" data-csr-id="${escapeHtml(item.id)}">
+          <strong>${escapeHtml(item.domains.join(", "))}</strong>
+          <p class="hint">Gerado em ${formatDateTime(item.created_at)}</p>
+          <div class="csr-actions">
+            <a class="button-link" href="/api/csr/${encodeURIComponent(item.id)}/download">Baixar CSR</a>
+            <button type="button" class="csr-discard-btn">Descartar</button>
+          </div>
+          <form class="csr-complete-form">
+            <label>Cole aqui o certificado recebido da CA (PEM)</label>
+            <textarea class="csr-cert-input" rows="6" placeholder="-----BEGIN CERTIFICATE-----" required></textarea>
+            <button type="submit">Concluir e salvar certificado</button>
+          </form>
+          <p class="csr-item-message hint"></p>
+        </div>`
+      )
+      .join("");
+  } catch {
+    // mantém a lista anterior se o fetch falhar
+  }
+}
+
+csrGenerateForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  hideCsrError();
+  const raw = document.getElementById("csr-domains").value;
+  const domains = raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const submitBtn = csrGenerateForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  try {
+    const response = await fetch("/api/csr", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domains }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Erro ${response.status}`);
+    }
+    csrGenerateForm.reset();
+    await refreshPendingCsrs();
+  } catch (err) {
+    showCsrError(err.message || "Não foi possível gerar o CSR.");
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+csrPendingList.addEventListener("click", async (event) => {
+  const discardBtn = event.target.closest(".csr-discard-btn");
+  if (!discardBtn) return;
+  const id = discardBtn.closest("[data-csr-id]").dataset.csrId;
+  await fetch(`/api/csr/${encodeURIComponent(id)}`, { method: "DELETE" });
+  await refreshPendingCsrs();
+});
+
+csrPendingList.addEventListener("submit", async (event) => {
+  const form = event.target.closest(".csr-complete-form");
+  if (!form) return;
+  event.preventDefault();
+  const item = form.closest("[data-csr-id]");
+  const id = item.dataset.csrId;
+  const messageEl = item.querySelector(".csr-item-message");
+  const certPem = form.querySelector(".csr-cert-input").value.trim();
+  const submitBtn = form.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  messageEl.textContent = "";
+  try {
+    const response = await fetch(`/api/csr/${encodeURIComponent(id)}/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ certificate_pem: certPem }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.detail || `Erro ${response.status}`);
+    await refreshPendingCsrs();
+    await refreshAcmeCertificates();
+  } catch (err) {
+    messageEl.textContent = err.message || "Não foi possível salvar o certificado.";
+    submitBtn.disabled = false;
+  }
+});
+
+refreshPendingCsrs();
+
 // Rota inicial — por último, depois que toda função/const que uma tela
 // pode precisar (ex: refreshSecurityStatus) já foi definida.
 routeFromHash();

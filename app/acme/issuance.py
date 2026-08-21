@@ -21,14 +21,12 @@ import josepy as jose
 from acme import challenges, messages
 from acme import client as acme_client
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import NameOID
 
 from app.acme.store import AcmeAccount, AcmeStore
+from app.pki.csr import build_csr
+from app.pki.keys import deserialize_private_key, generate_private_key, serialize_private_key
 
 USER_AGENT = "cert-discovery-platform/1.0"
-_KEY_SIZE = 2048
 
 
 class IssuanceError(Exception):
@@ -43,36 +41,12 @@ class IssuedResult:
     not_after: datetime | None
 
 
-def _serialize_private_key(key: rsa.RSAPrivateKey) -> str:
-    return key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    ).decode()
-
-
-def _deserialize_private_key(pem: str) -> rsa.RSAPrivateKey:
-    key = serialization.load_pem_private_key(pem.encode(), password=None)
-    assert isinstance(key, rsa.RSAPrivateKey)
-    return key
-
-
-def _build_csr(domain: str, key: rsa.RSAPrivateKey) -> bytes:
-    csr = (
-        x509.CertificateSigningRequestBuilder()
-        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, domain)]))
-        .add_extension(x509.SubjectAlternativeName([x509.DNSName(domain)]), critical=False)
-        .sign(key, hashes.SHA256())
-    )
-    return csr.public_bytes(serialization.Encoding.PEM)
-
-
 def _get_or_create_account(
     store: AcmeStore, environment: str, directory_url: str
 ) -> tuple[acme_client.ClientV2, jose.JWKRSA]:
     saved = store.load_account(environment)
     if saved is not None:
-        account_key = jose.JWKRSA(key=_deserialize_private_key(saved.account_key_pem))
+        account_key = jose.JWKRSA(key=deserialize_private_key(saved.account_key_pem))
         net = acme_client.ClientNetwork(account_key, user_agent=USER_AGENT)
         directory = acme_client.ClientV2.get_directory(directory_url, net)
         acme = acme_client.ClientV2(directory, net)
@@ -82,7 +56,7 @@ def _get_or_create_account(
         acme.net.account = acme.query_registration(regr)
         return acme, account_key
 
-    raw_key = rsa.generate_private_key(public_exponent=65537, key_size=_KEY_SIZE)
+    raw_key = generate_private_key()
     account_key = jose.JWKRSA(key=raw_key)
     net = acme_client.ClientNetwork(account_key, user_agent=USER_AGENT)
     directory = acme_client.ClientV2.get_directory(directory_url, net)
@@ -95,7 +69,7 @@ def _get_or_create_account(
     store.save_account(
         AcmeAccount(
             environment=environment,
-            account_key_pem=_serialize_private_key(raw_key),
+            account_key_pem=serialize_private_key(raw_key),
             account_uri=regr.uri,
         )
     )
@@ -126,8 +100,8 @@ def issue_certificate(
     acme, account_key = _get_or_create_account(store, environment, directory_url)
 
     on_progress("Gerando chave e CSR do certificado...")
-    cert_key = rsa.generate_private_key(public_exponent=65537, key_size=_KEY_SIZE)
-    csr_pem = _build_csr(domain, cert_key)
+    cert_key = generate_private_key()
+    csr_pem = build_csr([domain], cert_key)
 
     on_progress("Criando pedido de certificado (order)...")
     try:
@@ -182,6 +156,6 @@ def issue_certificate(
 
     return IssuedResult(
         fullchain_pem=finalized.fullchain_pem,
-        private_key_pem=_serialize_private_key(cert_key),
+        private_key_pem=serialize_private_key(cert_key),
         not_after=not_after,
     )
