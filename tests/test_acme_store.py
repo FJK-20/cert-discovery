@@ -3,7 +3,14 @@ padrão de tests/test_job_manager.py para AdminStore/ScanJobManager)."""
 
 from __future__ import annotations
 
-from app.acme.store import AcmeAccount, AcmeStore, CaCredentials, DnsCredentials, IssuedCertificate
+from app.acme.store import (
+    AcmeAccount,
+    AcmeStore,
+    AzureDnsCredentials,
+    CaCredentials,
+    DnsCredentials,
+    IssuedCertificate,
+)
 
 
 def test_account_round_trip_per_environment(tmp_path):
@@ -73,3 +80,30 @@ def test_ca_credentials_eab_hmac_key_is_encrypted_on_disk(tmp_path):
     raw = json.loads((tmp_path / "ca_credentials.json").read_text())
     assert raw["zerossl"]["eab_hmac_key"] != "secret"
     assert store.load_ca_credentials("zerossl").eab_hmac_key == "secret"
+
+
+def test_azure_dns_credentials_round_trip(tmp_path):
+    store = AcmeStore(tmp_path)
+    assert store.load_azure_dns_credentials() is None
+
+    creds = AzureDnsCredentials(
+        tenant_id="tenant1", client_id="client1", client_secret="secret1",
+        subscription_id="sub1", resource_group="rg1", zone_name="example.com",
+    )
+    store.save_azure_dns_credentials(creds)
+    assert store.load_azure_dns_credentials() == creds
+
+
+def test_azure_dns_client_secret_is_encrypted_on_disk(tmp_path):
+    import json
+
+    store = AcmeStore(tmp_path)
+    store.save_azure_dns_credentials(
+        AzureDnsCredentials(
+            tenant_id="t", client_id="c", client_secret="super-secret",
+            subscription_id="s", resource_group="rg", zone_name="example.com",
+        )
+    )
+    raw = json.loads((tmp_path / "azure_dns_credentials.json").read_text())
+    assert raw["client_secret"] != "super-secret"
+    assert store.load_azure_dns_credentials().client_secret == "super-secret"

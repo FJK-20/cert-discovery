@@ -44,6 +44,21 @@ class DnsCredentials:
 
 
 @dataclass
+class AzureDnsCredentials:
+    """Segundo provedor de DNS automático (ao lado da Cloudflare, campo
+    `DnsCredentials` acima) — prova que a interface de plugin de DNS é
+    plugável de verdade. Service principal escopado só à zona configurada
+    (DNS Zone Contributor), não à subscription inteira."""
+
+    tenant_id: str
+    client_id: str
+    client_secret: str
+    subscription_id: str
+    resource_group: str
+    zone_name: str
+
+
+@dataclass
 class CaCredentials:
     ca: str
     # kid é um identificador, não segredo por si só — mas hmac_key é a
@@ -94,6 +109,7 @@ class AcmeStore:
     def __init__(self, data_dir: Path) -> None:
         self._accounts_path = data_dir / "acme_accounts.json"
         self._dns_path = data_dir / "dns_credentials.json"
+        self._azure_dns_path = data_dir / "azure_dns_credentials.json"
         self._ca_credentials_path = data_dir / "ca_credentials.json"
         self._certs_dir = data_dir / "acme_certificates"
         self._box = SecretBox(data_dir)
@@ -128,6 +144,18 @@ class AcmeStore:
         entry = asdict(creds)
         entry["api_token"] = self._box.encrypt(entry["api_token"])
         _write_json(self._dns_path, entry)
+
+    def load_azure_dns_credentials(self) -> AzureDnsCredentials | None:
+        if not self._azure_dns_path.exists():
+            return None
+        raw = json.loads(self._azure_dns_path.read_text())
+        raw["client_secret"] = _maybe_decrypt(self._box, raw["client_secret"])
+        return AzureDnsCredentials(**raw)
+
+    def save_azure_dns_credentials(self, creds: AzureDnsCredentials) -> None:
+        entry = asdict(creds)
+        entry["client_secret"] = self._box.encrypt(entry["client_secret"])
+        _write_json(self._azure_dns_path, entry)
 
     def load_ca_credentials(self, ca: str) -> CaCredentials | None:
         if not self._ca_credentials_path.exists():

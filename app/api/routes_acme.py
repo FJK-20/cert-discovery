@@ -7,11 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.acme import cloudflare
+from app.acme import azure_dns, cloudflare
 from app.acme.history import renewal_history
 from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, CertificateAuthority, DnsMode
 from app.acme.renewal import renewal_manager
-from app.acme.store import CaCredentials, DnsCredentials, acme_store
+from app.acme.store import AzureDnsCredentials, CaCredentials, DnsCredentials, acme_store
 from app.audit.log import audit_log
 from app.auth.dependencies import require_admin, require_operator, require_session
 from app.core.ratelimit import SlidingWindowRateLimiter
@@ -38,6 +38,15 @@ class DnsCredentialsRequest(BaseModel):
 class ZeroSslCredentialsRequest(BaseModel):
     eab_kid: str = Field(..., min_length=1, max_length=200)
     eab_hmac_key: str = Field(..., min_length=1, max_length=500)
+
+
+class AzureDnsCredentialsRequest(BaseModel):
+    tenant_id: str = Field(..., min_length=1, max_length=100)
+    client_id: str = Field(..., min_length=1, max_length=100)
+    client_secret: str = Field(..., min_length=1, max_length=500)
+    subscription_id: str = Field(..., min_length=1, max_length=100)
+    resource_group: str = Field(..., min_length=1, max_length=200)
+    zone_name: str = Field(..., min_length=1, max_length=253)
 
 
 class RenewRequest(BaseModel):
@@ -71,11 +80,14 @@ def _job_snapshot(job: AcmeJob) -> dict:
 @router.get("/status")
 async def acme_status() -> dict:
     creds = acme_store.load_dns_credentials()
+    azure_creds = acme_store.load_azure_dns_credentials()
     zerossl_creds = acme_store.load_ca_credentials(CertificateAuthority.ZEROSSL.value)
     return {
         "dns_configured": creds is not None,
         "dns_provider": creds.provider if creds else None,
         "delegation_zone": creds.delegation_zone if creds else None,
+        "azure_dns_configured": azure_creds is not None,
+        "azure_dns_zone": azure_creds.zone_name if azure_creds else None,
         "zerossl_configured": zerossl_creds is not None,
         "accounts": {
             "staging": acme_store.load_account("staging") is not None,
@@ -97,6 +109,30 @@ async def save_zerossl_credentials(
         )
     )
     audit_log.record(username=username, action="ca_credentials_saved", detail="zerossl")
+    return {"ok": True}
+
+
+@router.post("/dns-credentials/azure")
+async def save_azure_dns_credentials(
+    payload: AzureDnsCredentialsRequest, username: str = Depends(require_admin)
+) -> dict:
+    creds = AzureDnsCredentials(
+        tenant_id=payload.tenant_id,
+        client_id=payload.client_id,
+        client_secret=payload.client_secret,
+        subscription_id=payload.subscription_id,
+        resource_group=payload.resource_group,
+        zone_name=payload.zone_name.strip().lower(),
+    )
+    valid = await asyncio.to_thread(azure_dns.verify_credentials, creds)
+    if not valid:
+        raise HTTPException(
+            status_code=400,
+            detail="Não foi possível autenticar no Azure ou encontrar a zona DNS configurada "
+            "— confira tenant/client/secret/subscription/resource group/zona.",
+        )
+    acme_store.save_azure_dns_credentials(creds)
+    audit_log.record(username=username, action="dns_credentials_saved", detail="azure_dns")
     return {"ok": True}
 
 
@@ -128,11 +164,16 @@ async def renew(
             status_code=429,
             detail="Muitas solicitações de emissão — aguarde alguns minutos.",
         )
-    needs_credentials = payload.dns_mode in (DnsMode.CLOUDFLARE, DnsMode.CNAME_DELEGATION)
-    if needs_credentials and acme_store.load_dns_credentials() is None:
+    needs_cloudflare = payload.dns_mode in (DnsMode.CLOUDFLARE, DnsMode.CNAME_DELEGATION)
+    if needs_cloudflare and acme_store.load_dns_credentials() is None:
         raise HTTPException(
             status_code=400,
             detail="Configure as credenciais de DNS (Cloudflare) antes de emitir um certificado.",
+        )
+    if payload.dns_mode == DnsMode.AZURE_DNS and acme_store.load_azure_dns_credentials() is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Configure as credenciais do Azure DNS antes de emitir um certificado.",
         )
     if payload.ca == CertificateAuthority.ZEROSSL and acme_store.load_ca_credentials(
         CertificateAuthority.ZEROSSL.value

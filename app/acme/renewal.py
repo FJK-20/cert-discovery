@@ -36,7 +36,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 
-from app.acme import cloudflare, dns_check
+from app.acme import azure_dns, cloudflare, dns_check
 from app.acme.history import RenewalHistoryStore, renewal_history
 from app.acme.issuance import IssuanceError, issue_certificate
 from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, CertificateAuthority, DnsMode
@@ -169,6 +169,8 @@ class AcmeRenewalManager:
     def _issue_sync(self, job: AcmeJob) -> None:
         if job.dns_mode == DnsMode.CLOUDFLARE:
             result = self._issue_via_cloudflare(job)
+        elif job.dns_mode == DnsMode.AZURE_DNS:
+            result = self._issue_via_azure_dns(job)
         elif job.dns_mode == DnsMode.CNAME_DELEGATION:
             result = self._issue_via_cname_delegation(job)
         else:
@@ -250,6 +252,46 @@ class AcmeRenewalManager:
 
         # Deixa uma margem dentro do orçamento total do job para a limpeza
         # do DNS e a gravação do certificado depois que a lib retorna.
+        issuance_budget = max(30.0, settings.acme_job_budget_seconds - 20.0)
+
+        return issue_certificate(
+            domain=job.domain,
+            environment=self._account_storage_key(job),
+            directory_url=self._directory_url(job),
+            store=self._store,
+            set_dns_challenge=set_dns_challenge,
+            clear_dns_challenge=clear_dns_challenge,
+            wait_for_dns_ready=wait_for_dns_ready,
+            eab_kid=eab_kid,
+            eab_hmac_key=eab_hmac_key,
+            total_budget_seconds=issuance_budget,
+            on_progress=lambda message: setattr(job, "progress_message", message),
+        )
+
+    def _issue_via_azure_dns(self, job: AcmeJob):
+        creds = self._store.load_azure_dns_credentials()
+        if creds is None:
+            raise IssuanceError(
+                "Nenhuma credencial do Azure DNS configurada. Configure o "
+                "service principal antes de emitir um certificado por esse modo."
+            )
+        eab_kid, eab_hmac_key = self._eab_credentials(job)
+
+        def set_dns_challenge(record_name: str, value: str) -> str:
+            job.progress_message = f"Criando registro TXT {record_name} no Azure DNS..."
+            try:
+                return azure_dns.create_txt_record(creds, record_name, value)
+            except azure_dns.AzureDnsError as exc:
+                raise IssuanceError(f"Falha ao configurar o DNS no Azure: {exc}") from exc
+
+        def clear_dns_challenge(relative_name: str) -> None:
+            # Erro na limpeza não deve mascarar o resultado da emissão —
+            # já é tratado como best-effort por quem chama (issue_certificate).
+            azure_dns.delete_txt_record(creds, relative_name)
+
+        def wait_for_dns_ready() -> None:
+            time.sleep(settings.acme_dns_propagation_wait_seconds)
+
         issuance_budget = max(30.0, settings.acme_job_budget_seconds - 20.0)
 
         return issue_certificate(

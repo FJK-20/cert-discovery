@@ -242,6 +242,46 @@
         </details>
       </div>
 
+      <!-- Mesmo motivo dos blocos acima: fora de #acme-renew-form. -->
+      <div id="acme-azure-config" class="hidden">
+        <div id="acme-azure-status" class="hint"></div>
+        <details id="acme-azure-form-details" data-requires-role="admin">
+          <summary>Configurar service principal do Azure DNS</summary>
+          <form id="acme-azure-form">
+            <label for="azure-tenant-id">Tenant ID</label>
+            <input id="azure-tenant-id" type="text" autocomplete="off" required />
+
+            <label for="azure-client-id">Client ID (Application ID)</label>
+            <input id="azure-client-id" type="text" autocomplete="off" required />
+
+            <label for="azure-client-secret">Client Secret</label>
+            <input id="azure-client-secret" type="password" autocomplete="off" required />
+
+            <label for="azure-subscription-id">Subscription ID</label>
+            <input id="azure-subscription-id" type="text" autocomplete="off" required />
+
+            <label for="azure-resource-group">Resource Group</label>
+            <input id="azure-resource-group" type="text" autocomplete="off" required />
+
+            <label for="azure-zone-name">Zona DNS (domínio)</label>
+            <input
+              id="azure-zone-name"
+              type="text"
+              autocomplete="off"
+              placeholder="seudominio.com.br"
+              required
+            />
+
+            <p class="hint">
+              O service principal precisa do papel "DNS Zone Contributor"
+              escopado só a essa zona (não à subscription inteira) — ver
+              Access control (IAM) da zona no portal do Azure.
+            </p>
+            <button type="submit">Salvar e validar</button>
+          </form>
+        </details>
+      </div>
+
       <form id="acme-renew-form" data-requires-role="admin,operador">
         <label for="acme-domain">Domínio a emitir/renovar</label>
         <input
@@ -270,6 +310,7 @@
           <option value="manual" selected>Manual — eu crio o registro TXT a cada emissão (qualquer provedor de DNS)</option>
           <option value="cname_delegation">Delegação CNAME — configuro uma vez, depois é automático (precisa de token de API numa zona sua)</option>
           <option value="cloudflare">Automático via Cloudflare (precisa de token de API na zona do domínio emitido)</option>
+          <option value="azure_dns">Automático via Azure DNS (precisa de service principal na zona do domínio emitido)</option>
         </select>
 
         <label class="consent">

@@ -26,13 +26,17 @@ class CertificateAuthority(StrEnum):
 class DnsMode(StrEnum):
     """Como o desafio DNS-01 é resolvido. `MANUAL` é o padrão genérico —
     funciona com qualquer provedor de DNS, sem credencial nenhuma.
-    `CLOUDFLARE` é um plugin opcional pra quem quer automação total.
-    `CNAME_DELEGATION` fica no meio: uma configuração manual única (um
-    CNAME) e, depois disso, toda renovação futura daquele domínio é
-    automática — sem token nenhum do lado do domínio emitido."""
+    `CLOUDFLARE` e `AZURE_DNS` são plugins opcionais pra quem quer
+    automação total, cada um com sua própria credencial — dois provedores
+    reais provando que a interface de plugin é plugável de verdade, não só
+    na teoria. `CNAME_DELEGATION` fica no meio: uma configuração manual
+    única (um CNAME) e, depois disso, toda renovação futura daquele
+    domínio é automática — sem token nenhum do lado do domínio emitido
+    (usa a credencial Cloudflare salva como zona de delegação)."""
 
     MANUAL = "manual"
     CLOUDFLARE = "cloudflare"
+    AZURE_DNS = "azure_dns"
     CNAME_DELEGATION = "cname_delegation"
 
 

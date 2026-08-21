@@ -482,6 +482,10 @@ const acmeZerosslConfig = document.getElementById("acme-zerossl-config");
 const acmeZerosslStatus = document.getElementById("acme-zerossl-status");
 const acmeZerosslFormDetails = document.getElementById("acme-zerossl-form-details");
 const acmeZerosslForm = document.getElementById("acme-zerossl-form");
+const acmeAzureConfig = document.getElementById("acme-azure-config");
+const acmeAzureStatus = document.getElementById("acme-azure-status");
+const acmeAzureFormDetails = document.getElementById("acme-azure-form-details");
+const acmeAzureForm = document.getElementById("acme-azure-form");
 const acmeRenewForm = document.getElementById("acme-renew-form");
 const acmeRenewBtn = document.getElementById("acme-renew-btn");
 const acmeDnsInstructions = document.getElementById("acme-dns-instructions");
@@ -508,8 +512,9 @@ let currentAcmeJobId = null;
 // delegação usa o token pra publicar TXT na zona de delegação, não na
 // zona do domínio emitido) — os dois precisam do painel de configuração.
 acmeDnsMode.addEventListener("change", () => {
-  const needsCredentials = acmeDnsMode.value === "cloudflare" || acmeDnsMode.value === "cname_delegation";
-  acmeCloudflareConfig.classList.toggle("hidden", !needsCredentials);
+  const needsCloudflare = acmeDnsMode.value === "cloudflare" || acmeDnsMode.value === "cname_delegation";
+  acmeCloudflareConfig.classList.toggle("hidden", !needsCloudflare);
+  acmeAzureConfig.classList.toggle("hidden", acmeDnsMode.value !== "azure_dns");
 });
 
 // ZeroSSL não tem staging separado — todo certificado emitido por ela sai
@@ -573,6 +578,14 @@ async function refreshAcmeStatus() {
       acmeZerosslStatus.textContent = "Nenhuma credencial EAB da ZeroSSL configurada ainda.";
       acmeZerosslFormDetails.open = true;
     }
+
+    if (status.azure_dns_configured) {
+      acmeAzureStatus.textContent = `Azure DNS configurado (zona: ${status.azure_dns_zone}).`;
+      acmeAzureFormDetails.open = false;
+    } else {
+      acmeAzureStatus.textContent = "Nenhum service principal do Azure DNS configurado ainda.";
+      acmeAzureFormDetails.open = true;
+    }
   } catch {
     acmeDnsStatus.textContent = "";
   }
@@ -587,7 +600,7 @@ async function refreshAcmeCertificates() {
       acmeCertsList.innerHTML = "Nenhum certificado emitido ainda.";
       return;
     }
-    const AUTO_RENEWABLE = new Set(["cloudflare", "cname_delegation"]);
+    const AUTO_RENEWABLE = new Set(["cloudflare", "azure_dns", "cname_delegation"]);
     acmeCertsList.innerHTML = certs
       .map((cert) => {
         const issuedAt = formatDateTime(cert.issued_at);
@@ -661,6 +674,38 @@ acmeZerosslForm.addEventListener("submit", async (event) => {
     await refreshAcmeStatus();
   } catch (err) {
     showAcmeError(err.message || "Não foi possível salvar as credenciais da ZeroSSL.");
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+acmeAzureForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  hideAcmeError();
+  const payload = {
+    tenant_id: document.getElementById("azure-tenant-id").value.trim(),
+    client_id: document.getElementById("azure-client-id").value.trim(),
+    client_secret: document.getElementById("azure-client-secret").value.trim(),
+    subscription_id: document.getElementById("azure-subscription-id").value.trim(),
+    resource_group: document.getElementById("azure-resource-group").value.trim(),
+    zone_name: document.getElementById("azure-zone-name").value.trim(),
+  };
+  const submitBtn = acmeAzureForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  try {
+    const response = await fetch("/api/acme/dns-credentials/azure", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Erro ${response.status}`);
+    }
+    acmeAzureForm.reset();
+    await refreshAcmeStatus();
+  } catch (err) {
+    showAcmeError(err.message || "Não foi possível salvar as credenciais do Azure DNS.");
   } finally {
     submitBtn.disabled = false;
   }

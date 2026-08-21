@@ -37,7 +37,11 @@ from app.notify import notifier
 from app.notify.store import NotificationStore
 from app.notify.store import notification_store as default_notification_store
 
-_AUTO_RENEWABLE_MODES = {DnsMode.CLOUDFLARE.value, DnsMode.CNAME_DELEGATION.value}
+_AUTO_RENEWABLE_MODES = {
+    DnsMode.CLOUDFLARE.value,
+    DnsMode.AZURE_DNS.value,
+    DnsMode.CNAME_DELEGATION.value,
+}
 _TERMINAL_STATES = {AcmeJobState.DONE.value, AcmeJobState.FAILED.value}
 
 # Regra de negócio 05: retry com backoff, depois de esgotar as tentativas
