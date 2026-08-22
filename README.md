@@ -1,13 +1,17 @@
-# Certificate Discovery Platform
+# Certificate Manager
 
 ![CI](https://github.com/FJK-20/cert-discovery/actions/workflows/ci.yml/badge.svg)
 [![GHCR](https://img.shields.io/badge/ghcr.io-cert--discovery-blue?logo=docker)](https://github.com/FJK-20/cert-discovery/pkgs/container/cert-discovery)
 
-Plataforma open source para descoberta e inventário de certificados TLS.
+Plataforma open source de gerenciamento de certificados TLS, ciclo de vida
+completo: descoberta, emissão/renovação via ACME (Let's Encrypt e ZeroSSL)
+ou CSR manual, renovação agendada com notificação, multiusuário com SSO, e
+log de auditoria tamper-evident.
 
-A aplicação recebe um domínio autorizado, consulta fontes públicas de
-Certificate Transparency, identifica hosts relacionados, realiza resolução
-DNS e handshake TLS e consolida os certificados encontrados em um inventário.
+A descoberta consulta fontes públicas de Certificate Transparency,
+identifica hosts relacionados, realiza resolução DNS e handshake TLS ao
+vivo e consolida tudo num inventário — mas é só a primeira etapa do ciclo;
+dali em diante a aplicação também emite, renova e audita.
 
 > **Nota:** este projeto foi desenvolvido com auxílio de IA (Claude), como
 > peça de portfólio pessoal. O código foi revisado, mas pode conter bugs
@@ -17,7 +21,7 @@ DNS e handshake TLS e consolida os certificados encontrados em um inventário.
 > abrir uma issue se encontrar algo estranho.
 
 <p align="center">
-  <img src="docs/screenshots/app-empty.png" alt="Tela inicial da Certificate Discovery Platform" width="49%" />
+  <img src="docs/screenshots/app-empty.png" alt="Tela inicial do Certificate Manager" width="49%" />
   <img src="docs/screenshots/app-results.png" alt="Inventário de certificados com cards de resumo e tabela de resultados" width="49%" />
 </p>
 
@@ -29,16 +33,23 @@ certificados expirarem sem acompanhamento.
 
 ## Solução
 
-A plataforma automatiza:
+A plataforma cobre o ciclo de vida inteiro do certificado, não só a
+descoberta:
 
-- descoberta de certificados públicos (via Certificate Transparency logs);
-- identificação de hosts ativos;
-- coleta de certificados via handshake TLS ao vivo;
-- deduplicação por fingerprint SHA-256;
-- classificação por urgência de expiração;
-- montagem automática de uma fila priorizada de renovação;
-- geração de inventário exportável (CSV/JSON);
-- dashboard visual: cards de resumo clicáveis, gráficos de distribuição por emissor/prazo de expiração, e painel de detalhes completo (SANs, serial, fingerprint) ao clicar em qualquer linha da tabela.
+- **descoberta**: Certificate Transparency logs + handshake TLS ao vivo,
+  deduplicação por fingerprint SHA-256, classificação por urgência de
+  expiração, dashboard visual (cards clicáveis, gráficos por emissor/prazo,
+  painel de detalhes com SANs/serial/fingerprint), export CSV/JSON;
+- **emissão/renovação**: ACME real (Let's Encrypt e ZeroSSL) com DNS-01
+  manual, Cloudflare, Azure DNS ou delegação CNAME — ou CSR manual pra CA
+  que não fala ACME;
+- **automação**: renovação agendada com retry/backoff, fila com estado
+  visível, notificação por webhook/e-mail quando falha ou exige ação manual;
+- **multiusuário**: 4 papéis com segregação de funções, login local ou SSO
+  via SAML 2.0 (Entra ID/Azure AD ou qualquer IdP padrão), API keys pra
+  acesso programático;
+- **segurança e compliance**: log de auditoria tamper-evident (cadeia de
+  hashes), criptografia em repouso, cabeçalhos de segurança HTTP estritos.
 
 ## Como funciona
 
@@ -181,18 +192,23 @@ criar uma nova.
 ## Emissão via ACME (DNS-01)
 
 Além do inventário, a aplicação emite/renova certificados **reais** via
-[Let's Encrypt](https://letsencrypt.org/) usando o protocolo ACME v2 com
-desafio **DNS-01** — a mesma prova de posse de domínio que qualquer CA usa,
-mas sem depender de expor a porta 80 do host (diferente do desafio HTTP-01).
+duas CAs que falam ACME v2 — [Let's Encrypt](https://letsencrypt.org/) e
+[ZeroSSL](https://zerossl.com/) — usando desafio **DNS-01**, a mesma prova
+de posse de domínio que qualquer CA usa, mas sem depender de expor a porta
+80 do host (diferente do desafio HTTP-01). ZeroSSL exige credenciais de
+External Account Binding (EAB — kid + hmac key, obtidas no painel da
+ZeroSSL em Developer → EAB Credentials), configuradas uma vez em
+Configurações antes do primeiro uso; não tem ambiente de staging separado
+— todo certificado emitido por ela sai real.
 
-Três jeitos de resolver o desafio, escolhidos na tela de Emissão:
+Quatro jeitos de resolver o desafio, escolhidos na tela de Emissão:
 
 - **Manual (padrão)** — a aplicação calcula o registro TXT
   (`_acme-challenge.<domínio>`) e mostra o nome/valor pra você criar em
   **qualquer** provedor de DNS, sem credencial nenhuma. Um botão "Verificar
   propagação e continuar" confirma via consulta DNS real antes de avisar a
-  Let's Encrypt — evita gastar uma tentativa de validação (rate limit da CA)
-  num registro que ainda não propagou. Repete a cada emissão/renovação.
+  CA — evita gastar uma tentativa de validação (rate limit da CA) num
+  registro que ainda não propagou. Repete a cada emissão/renovação.
 - **Delegação CNAME (configuração única)** — meio-termo entre o manual e o
   automático. Na primeira vez pra um domínio, você configura **uma vez** um
   `CNAME _acme-challenge.<domínio> → <hash>.acme-delegate.<sua zona>`
@@ -201,15 +217,20 @@ Três jeitos de resolver o desafio, escolhidos na tela de Emissão:
   segue 100% automática — sem token nenhum do lado do domínio emitido, e
   sem repetir o passo manual. É a mesma técnica que os principais plugins
   DNS do Certbot documentam pra provedores sem API própria.
-- **Automático via Cloudflare (opcional)** — pra quem quer zero cliques
-  desde a primeira emissão, direto na zona do domínio emitido: um
+- **Automático via Cloudflare (opcional)** — um
   [API Token](https://dash.cloudflare.com/profile/api-tokens) (não a Global
-  API Key) com permissão **Zone → DNS → Edit** cria e remove o TXT sozinho.
+  API Key) com permissão **Zone → DNS → Edit** cria e remove o TXT sozinho,
+  direto na zona do domínio emitido.
+- **Automático via Azure DNS (opcional)** — um service principal do Entra
+  ID com o papel **DNS Zone Contributor** escopado só à zona (não à
+  subscription inteira) faz a mesma coisa via API REST do Azure Resource
+  Manager. Cliente HTTP puro (`httpx`), sem depender do SDK oficial do
+  Azure — mantém a filosofia de dependência mínima do projeto.
 
-O token da Cloudflare (usado pelos dois últimos modos) é validado antes de
-salvar (`data/dns_credentials.json`, permissão `0600`), nunca reexibido.
-Cloudflare é o primeiro de vários provedores possíveis — a interface
-interna (`set_dns_challenge`/`clear_dns_challenge` em
+O token da Cloudflare/credencial do Azure (usados pelos dois últimos modos)
+são validados antes de salvar e criptografados em repouso, nunca
+reexibidos. Cloudflare e Azure são dois de vários provedores possíveis — a
+interface interna (`set_dns_challenge`/`clear_dns_challenge` em
 `app/acme/issuance.py`) já é genérica o bastante pra outro provedor plugar
 sem mudar o fluxo ACME em si.
 
@@ -336,8 +357,35 @@ nunca é só na UI.
 
 O primeiro usuário cadastrado é sempre admin (não existe autocadastro
 aberto depois disso — só um admin já autenticado cria novas contas, em
-Configurações → Usuários). Não é possível remover a si mesmo nem remover o
+Configurações → Usuários). Um admin pode trocar o papel de qualquer
+usuário depois de criado (sem precisar remover e recriar a conta — o que
+quebraria contas de SSO, que não têm senha utilizável pra recriar
+localmente). Não é possível remover a si mesmo, nem remover ou rebaixar o
 último admin restante.
+
+### SSO via SAML 2.0
+
+Além de usuário/senha local, a aplicação aceita login single sign-on via
+SAML 2.0 — Entra ID (Azure AD) ou qualquer IdP que fale o protocolo
+padrão. Usa [`python3-saml`](https://github.com/SAML-Toolkits/python3-saml)
+(lib de referência da OneLogin) pra assinatura/validação de XML — segurança
+crítica o bastante pra não reimplementar na mão.
+
+Pra configurar (Configurações → SSO, admin-only): registre uma Enterprise
+Application SAML no seu IdP apontando pro **SP Entity ID**
+(`<url-pública>/api/auth/saml/metadata`) e **ACS URL**
+(`<url-pública>/api/auth/saml/acs`) — ou importe a metadata diretamente
+pela URL. Cole de volta o Entity ID, SSO URL e certificado X.509 do IdP.
+`CERTDISC_PUBLIC_BASE_URL` (variável de ambiente) precisa estar configurada
+com a URL pública fixa da aplicação — o Entity ID/ACS URL não podem variar
+conforme o host de acesso (LAN vs. público), já que precisam bater com o
+que está cadastrado no IdP.
+
+Contas provisionadas por SSO no primeiro login entram com o papel
+**leitor** (privilégio mínimo) e senha inutilizável — login usuário/senha é
+recusado pra elas, e um e-mail que já existe como conta local nunca é
+sequestrado por um login SSO com o mesmo e-mail. Um admin promove o papel
+depois, em Usuários.
 
 ### Log de auditoria (tamper-evident)
 
@@ -374,6 +422,8 @@ fica salvo) — perdeu, revoga e gera outra.
 | `CERTDISC_COOKIE_SECURE`               | `false`| Marca o cookie de sessão como `Secure` (ative atrás de HTTPS) |
 | `CERTDISC_AUTH_RATE_LIMIT`             | `8`    | Limite de tentativas de login/MFA a cada 5 min, por IP |
 | `CERTDISC_SCHEDULER_INTERVAL_SECONDS`  | `21600` (6h) | Intervalo do verificador de renovação automática |
+| `CERTDISC_MASTER_KEY`                  | (gerada automaticamente) | Chave mestra de criptografia em repouso — defina em produção, senão é gerada e persistida em `data/master.key` |
+| `CERTDISC_PUBLIC_BASE_URL`             | `http://localhost:8000` | URL pública fixa da aplicação — usada como Entity ID/ACS URL do SSO SAML, precisa bater com o que está cadastrado no IdP |
 
 ## Segurança
 
@@ -456,6 +506,12 @@ push, via `pip-audit` no CI.
   subdomínios manualmente.
 - **Wildcards** (`*.sub.dominio.com`) descobertos via CT log não são
   expandidos automaticamente — aparecem no inventário sinalizados como tal.
+- **Não dá pra importar um certificado já existente diretamente**: hoje um
+  certificado só entra na gestão da aplicação sendo emitido por ela (ACME)
+  ou completando o fluxo de CSR manual (que gera a chave aqui). Um
+  certificado + chave que já existem em outro lugar (migrando de outra
+  ferramenta, por exemplo) não têm um caminho de "colar/enviar e passar a
+  gerenciar" — ver Roadmap abaixo.
 
 ## Testes
 
@@ -473,13 +529,29 @@ teste depende de rede externa.
 
 ## Roadmap / ideias futuras
 
+**Feito** (segundo provedor de DNS e multi-CA, que já estavam nesta lista,
+foram implementados: Azure DNS e ZeroSSL, com SSO SAML no mesmo ciclo —
+ver seções acima).
+
+- **Importação de certificados existentes** — hoje um certificado só entra
+  na aplicação sendo emitido por ela; não há como trazer um certificado +
+  chave que já existem em outro lugar (migração de outra ferramenta, por
+  exemplo) e passar a gerenciá-lo aqui (acompanhar expiração, aparecer no
+  inventário/renovação). Dois modos planejados: colar o PEM diretamente
+  (certificado + chave privada opcional) ou enviar como arquivo — mesma
+  checagem de correspondência chave/certificado já usada no fluxo de CSR
+  manual. Um certificado importado sem a chave privada entraria só como
+  "monitorado" (acompanha expiração, mas não pode ser baixado nem renovado
+  automaticamente).
 - Expansão opcional de wildcards por labels comuns.
 - Suporte a outras fontes de CT log além do crt.sh (redundância).
-- Segundo provedor de DNS além da Cloudflare (Route53 ou RFC2136 genérico)
-  — provaria que a interface interna já é plugável de verdade, hoje só
-  falta uma segunda implementação real pra testar.
-- Multi-CA via ACME (ZeroSSL), que exige credenciais de External Account
-  Binding além do protocolo ACME padrão.
+- Mais um provedor de DNS (Route53 ou RFC2136 genérico) — prova adicional
+  de que a interface interna é genuinamente plugável, não só Cloudflare e
+  Azure com nomes trocados.
+- Mais uma CA via ACME ou integração direta com uma CA comercial (GoDaddy,
+  GlobalSign) — hoje o app cobre ACME (Let's Encrypt/ZeroSSL) e CSR manual
+  pra qualquer CA que não fale ACME; um conector direto de API é uma
+  camada a mais, não substitui o CSR manual.
 
 ## Licença
 

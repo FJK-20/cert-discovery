@@ -85,7 +85,7 @@ async def send_test_notification(request: Request, _admin: str = Depends(require
             status_code=400, detail="Configure webhook e/ou e-mail antes de testar."
         )
     sent = notifier.notify(
-        "Teste de notificação — Certificate Discovery Platform",
+        "Teste de notificação — Certificate Manager",
         "Se você recebeu isso, a notificação está configurada corretamente.",
         config,
     )

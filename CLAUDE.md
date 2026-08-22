@@ -1,9 +1,16 @@
-# Certificate Discovery Platform
+# Certificate Manager
 
-Descoberta e inventário de certificados TLS: consulta CT logs (crt.sh),
-resolve DNS, faz handshake TLS ao vivo, deduplica por fingerprint, classifica
-por urgência de expiração e monta fila de renovação. Projeto de portfólio
-open source (MIT) — não é código de cliente.
+Gerenciador de certificados TLS de ciclo completo: descoberta (CT logs +
+handshake TLS ao vivo, dedupe por fingerprint), emissão/renovação via ACME
+(Let's Encrypt e ZeroSSL, DNS-01 manual/Cloudflare/Azure DNS/delegação
+CNAME) ou CSR manual, renovação agendada com notificação, multiusuário com
+4 papéis + SSO SAML, log de auditoria tamper-evident, criptografia em
+repouso. Projeto de portfólio open source (MIT) — não é código de cliente.
+O diretório/repo continua se chamando `cert-discovery` (não renomear —
+quebraria o path da imagem `ghcr.io/fjk-20/cert-discovery`), mas a
+identidade voltada pro usuário é "Certificate Manager", não mais
+"discovery" — descoberta é uma etapa do ciclo de vida, não o produto
+inteiro.
 
 ## Stack
 Python 3.13, FastAPI, `httpx`, `cryptography`, `dnspython`, stdlib TOTP/scrypt

@@ -37,8 +37,11 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="Certificate Discovery Platform",
-    description="Descoberta e inventário de certificados TLS via CT logs + handshake ao vivo.",
+    title="Certificate Manager",
+    description=(
+        "Gerenciador de certificados TLS de ciclo completo — descoberta, "
+        "emissão/renovação via ACME, SSO e auditoria."
+    ),
     lifespan=_lifespan,
 )
 app.add_middleware(SecurityHeadersMiddleware, hsts_enabled=settings.cookie_secure)

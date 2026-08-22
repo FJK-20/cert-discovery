@@ -40,7 +40,7 @@ class Settings:
     session_ttl_seconds: float = 12 * 3600
     pending_login_ttl_seconds: float = 5 * 60
     cookie_secure: bool = _bool_env("CERTDISC_COOKIE_SECURE", False)
-    totp_issuer: str = "Certificate Discovery Platform"
+    totp_issuer: str = "Certificate Manager"
     auth_rate_limit_requests: int = _int_env("CERTDISC_AUTH_RATE_LIMIT", 8)
     auth_rate_limit_window_seconds: float = 300.0
 
