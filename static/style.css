@@ -11,7 +11,12 @@
   --text: #1a2233;
   --muted: #5b6472;
   --border: #e1e5ea;
-  --brand: #2563eb;
+  /* Teal em vez do azul genérico de dashboard — verificado por luminância
+     relativa WCAG 2.1 (não estimado): 5.92:1 como texto/botão sobre
+     branco ou --bg, folga confortável acima do mínimo AA de 4.5:1. */
+  --brand: #0f6e7d;
+  --brand-hover: #0b5560;
+  --shadow-card: 0 1px 2px rgba(15, 30, 40, 0.04), 0 4px 12px rgba(15, 30, 40, 0.05);
   --ok: #12873d;
   --warning: #b26205;
   --critical: #cc4d0a;
@@ -31,7 +36,10 @@
     --text: #e6e9ef;
     --muted: #9aa4b2;
     --border: #2a3242;
-    --brand: #5b8def;
+    /* 7.91:1 sobre --bg/--card-bg — folga bem acima do mínimo AA. */
+    --brand: #4fb8c9;
+    --brand-hover: #78cbd8;
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 14px rgba(0, 0, 0, 0.24);
     --ok: #16a34a;
     --warning: #d97706;
     --critical: #ea580c;
@@ -102,6 +110,7 @@ main {
   font-size: 0.92rem;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
 
 .main-nav a[aria-current="page"] {
@@ -118,10 +127,19 @@ main {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.5rem;
+  box-shadow: var(--shadow-card);
 }
 
+/* !important deliberado: .hidden é utilitária, precisa vencer qualquer
+   classe de componente presente no mesmo elemento (ex: "button-link-block
+   hidden") não importa a ordem de declaração no arquivo — sem isso, um
+   componente com display próprio declarado depois no CSS (mesma
+   especificidade, 0-1-0 nos dois) cancela o "hidden" silenciosamente.
+   Já bit o projeto duas vezes por esse motivo (modal-overlay antes, o
+   botão de SSO agora) — em vez de mais um seletor composto pontual pra
+   cada novo caso, resolve pra sempre aqui. */
 .hidden {
-  display: none;
+  display: none !important;
 }
 
 form label {
@@ -191,11 +209,25 @@ button {
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--brand-hover);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 
 .disclaimer {
@@ -304,6 +336,10 @@ button:disabled {
   font-weight: 600;
 }
 
+.button-link:hover {
+  text-decoration: underline;
+}
+
 .table-wrapper {
   overflow-x: auto;
 }
@@ -401,7 +437,12 @@ footer {
   font-size: 1rem;
   font-weight: 600;
   text-decoration: none;
+  transition: background-color 0.15s ease;
   margin-top: 0.5rem;
+}
+
+.button-link-block:hover {
+  background: var(--brand-hover);
 }
 
 /* Banner de erro fica acima do card ativo em vez de substituí-lo — o
@@ -464,6 +505,13 @@ footer {
   min-height: 44px;
   font-size: 0.85rem;
   font-weight: 500;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+#logout-btn:hover,
+#security-btn:hover {
+  border-color: var(--brand);
+  color: var(--text);
 }
 
 /* Visão geral / gráficos */
@@ -544,13 +592,6 @@ footer {
   justify-content: center;
   padding: 1.5rem;
   z-index: 100;
-}
-
-/* .hidden e .modal-overlay têm a mesma especificidade (uma classe); sem
-   isso aqui, quem decide é a ordem no arquivo, não a intenção — o modal
-   ficaria sempre visível (e capturando cliques) mesmo com "hidden". */
-.modal-overlay.hidden {
-  display: none;
 }
 
 .modal-card {
