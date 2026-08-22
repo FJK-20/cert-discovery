@@ -101,7 +101,18 @@ async def saml_acs(request: Request):
         raise HTTPException(status_code=400, detail="SSO SAML não configurado.")
 
     auth = await saml.build_auth(request, config, settings.public_base_url)
-    auth.process_response()
+    try:
+        auth.process_response()
+    except Exception as err:
+        # python3-saml faz parsing de XML já no construtor da Response,
+        # antes do próprio try/except interno de is_valid() entrar em
+        # ação — um POST malformado (bot varrendo endpoints, IdP mal
+        # configurado, etc.) nesse endpoint público e sem autenticação
+        # lançava XMLSyntaxError direto pra fora como 500 em vez de
+        # falhar como qualquer outra tentativa de login inválida.
+        raise HTTPException(
+            status_code=401, detail=f"Falha ao processar a resposta SAML: {err}"
+        ) from err
     errors = auth.get_errors()
     if errors:
         raise HTTPException(

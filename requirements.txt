@@ -15,3 +15,9 @@ pyopenssl>=26.0,<27
 # raciocínio já aplicado à lib `acme` acima): usa a lib de referência da
 # OneLogin em vez de parsear XML assinado com as próprias mãos.
 python3-saml>=1.16,<2.0
+# Starlette's Request.form() (usado em app/auth/saml.py pra ler o
+# SAMLResponse do POST binding) precisa dessa lib pra parsear
+# application/x-www-form-urlencoded — sem ela, request.form() lança
+# AssertionError em runtime (não falha em import, só no primeiro POST real,
+# por isso passou despercebido pelos testes até uma tentativa real de login).
+python-multipart>=0.0.12,<0.1

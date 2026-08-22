@@ -496,6 +496,31 @@ def test_saml_config_save_and_status_and_metadata(tmp_path, monkeypatch):
     assert "EntityDescriptor" in metadata.text
 
 
+def test_saml_acs_parses_real_form_post_without_crashing(tmp_path, monkeypatch):
+    # Regressão: request.form() (usado pra ler o SAMLResponse do POST
+    # binding) precisa da lib python-multipart instalada — sem ela, o
+    # primeiro POST real de um IdP de verdade batia em AssertionError não
+    # tratado (500), e nenhum teste existente descobria isso porque todos
+    # usavam MagicMock em vez de um POST form-encoded de verdade. A resposta
+    # aqui é lixo (sem assinatura válida), então o esperado é 401 — o que
+    # importa é NÃO ser 500.
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    client.post(
+        "/api/auth/saml/config",
+        json={
+            "entity_id": "https://sts.windows.net/tenant/",
+            "sso_url": "https://login.microsoftonline.com/tenant/saml2",
+            "x509_cert": "FAKE-CERT",
+        },
+    )
+    response = client.post(
+        "/api/auth/saml/acs",
+        data={"SAMLResponse": "bm90LWEtcmVhbC1zYW1sLXJlc3BvbnNl"},
+    )
+    assert response.status_code == 401
+
+
 def test_saml_metadata_404_when_not_configured(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     assert client.get("/api/auth/saml/metadata").status_code == 404
