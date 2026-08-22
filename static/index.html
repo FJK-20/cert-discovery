@@ -377,6 +377,42 @@
       <h3>CSRs aguardando certificado</h3>
       <div id="csr-pending-list" class="hint">Nenhum CSR pendente.</div>
     </section>
+
+    <section id="import-card" class="card">
+      <h2>📥 Importar certificado existente</h2>
+      <p class="hint">
+        Pra um certificado que já existe fora da aplicação — migrando de
+        outra ferramenta, por exemplo. Sem a chave privada, o certificado
+        entra como <strong>só monitorado</strong>: acompanha a expiração e
+        avisa quando entrar na janela de renovação, mas não pode ser
+        baixado nem renovado automaticamente por aqui.
+      </p>
+
+      <form id="import-form" data-requires-role="admin,operador">
+        <label for="import-cert-pem">Certificado (PEM)</label>
+        <textarea
+          id="import-cert-pem"
+          rows="8"
+          placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+          required
+        ></textarea>
+
+        <label for="import-key-pem">Chave privada (PEM, opcional)</label>
+        <textarea
+          id="import-key-pem"
+          rows="8"
+          placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+        ></textarea>
+
+        <label for="import-cert-file">Ou envie um arquivo (.pem/.crt) em vez de colar</label>
+        <input id="import-cert-file" type="file" accept=".pem,.crt,.cer,.txt" />
+
+        <button type="submit">Importar</button>
+      </form>
+
+      <div id="import-error" class="hidden error-banner"></div>
+      <div id="import-success" class="hidden hint"></div>
+    </section>
     </div>
 
     <div id="screen-renovacao" class="screen hidden">

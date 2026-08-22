@@ -252,6 +252,7 @@ async def list_certificates() -> list[dict]:
             "not_after": c.not_after,
             "dns_mode": c.dns_mode,
             "ca": c.ca,
+            "has_private_key": c.private_key_pem is not None,
         }
         for c in acme_store.list_certificates()
     ]
@@ -275,6 +276,11 @@ async def download_private_key(cert_id: str, _viewer: str = Depends(require_oper
     cert = acme_store.load_certificate(cert_id)
     if cert is None:
         raise HTTPException(status_code=404, detail="Certificado não encontrado.")
+    if cert.private_key_pem is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Esse certificado foi importado sem chave privada — não há o que baixar.",
+        )
     filename = f"{cert.domain}-privkey.pem"
     return StreamingResponse(
         iter([cert.private_key_pem]),

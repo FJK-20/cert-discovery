@@ -305,6 +305,27 @@ gera um CSR (Certificate Signing Request) tradicional:
    automação da seção abaixo nunca tenta renová-lo sozinha, só notifica
    quando ele entra na janela de expiração.
 
+## Importação de certificado existente
+
+Pra quem está migrando de outra ferramenta: um certificado (e opcionalmente
+a chave privada) que já existem fora da aplicação podem ser trazidos pra
+gestão dela — colando o PEM ou enviando um arquivo `.pem`/`.crt`, na tela
+de Emissão.
+
+- **Com chave privada**: a aplicação confirma que a chave corresponde ao
+  certificado (mesma checagem do fluxo de CSR) antes de aceitar. A partir
+  daí funciona como qualquer outro certificado manual — aparece em
+  Renovação, pode ser baixado, é avisado (não renovado sozinho, já que não
+  foi emitido via ACME) quando entra na janela de expiração.
+- **Sem chave privada**: entra como **só monitorado** — a aplicação
+  acompanha a expiração e avisa, mas não há chave pra baixar nem como
+  renovar automaticamente. Útil pra ter visibilidade de um certificado que
+  outra pessoa/sistema gerencia, sem assumir a responsabilidade da chave.
+- A data de emissão salva é a real (`not_valid_before` do próprio
+  certificado), não o momento da importação — importante pro cálculo da
+  janela de renovação (regra de negócio 02), que depende da validade total
+  real, não de quando o certificado chegou nesta aplicação.
+
 ## Renovação automática e notificações
 
 Um verificador roda em segundo plano (padrão a cada 6h, configurável) e
@@ -506,12 +527,13 @@ push, via `pip-audit` no CI.
   subdomínios manualmente.
 - **Wildcards** (`*.sub.dominio.com`) descobertos via CT log não são
   expandidos automaticamente — aparecem no inventário sinalizados como tal.
-- **Não dá pra importar um certificado já existente diretamente**: hoje um
-  certificado só entra na gestão da aplicação sendo emitido por ela (ACME)
-  ou completando o fluxo de CSR manual (que gera a chave aqui). Um
-  certificado + chave que já existem em outro lugar (migrando de outra
-  ferramenta, por exemplo) não têm um caminho de "colar/enviar e passar a
-  gerenciar" — ver Roadmap abaixo.
+- **Importação aceita só PEM colado ou enviado como arquivo de texto** —
+  não há suporte a DER binário, PKCS#12 (`.p12`/`.pfx`) nem Java Keystore
+  (`.jks`). PEM é o formato universal (toda CA entrega ou consegue
+  converter pra PEM); os outros ficam de fora por ora — dá pra adicionar
+  se aparecer um caso de uso real (P12 não precisaria de dependência nova,
+  a lib `cryptography` já suporta; JKS exigiria uma dependência nova só
+  pra esse caso).
 
 ## Testes
 
@@ -529,20 +551,32 @@ teste depende de rede externa.
 
 ## Roadmap / ideias futuras
 
-**Feito** (segundo provedor de DNS e multi-CA, que já estavam nesta lista,
-foram implementados: Azure DNS e ZeroSSL, com SSO SAML no mesmo ciclo —
-ver seções acima).
+**Feito** (itens que já estavam nesta lista): segundo provedor de DNS
+(Azure DNS) e multi-CA (ZeroSSL), SSO SAML, e importação de certificado
+existente (colar PEM ou enviar arquivo, com ou sem chave privada) — ver
+seções acima.
 
-- **Importação de certificados existentes** — hoje um certificado só entra
-  na aplicação sendo emitido por ela; não há como trazer um certificado +
-  chave que já existem em outro lugar (migração de outra ferramenta, por
-  exemplo) e passar a gerenciá-lo aqui (acompanhar expiração, aparecer no
-  inventário/renovação). Dois modos planejados: colar o PEM diretamente
-  (certificado + chave privada opcional) ou enviar como arquivo — mesma
-  checagem de correspondência chave/certificado já usada no fluxo de CSR
-  manual. Um certificado importado sem a chave privada entraria só como
-  "monitorado" (acompanha expiração, mas não pode ser baixado nem renovado
-  automaticamente).
+**Avaliado e conscientemente fora de escopo** (pedido por um framework
+externo colado no chat, não implementado como estava, por razões
+específicas):
+- **Reescrever o frontend em React/TypeScript** — contradiz uma decisão
+  deliberada do projeto (vanilla JS/HTML/CSS, sem framework, sem build
+  step — `git clone && docker compose up` só funciona por causa disso).
+  Trocaria uma base simples e já funcionando por uma pipeline de build
+  inteira, sem ganho funcional nenhum pra um projeto de portfólio.
+- **"Automação de purge do Cloudflare" como feature do app**, aceitando o
+  token master do usuário via um endpoint pra gerar um token escopado
+  internamente — o próprio projeto já documentou o motivo de nunca fazer
+  isso (ver o token master é "account-owner-broad", nunca deve ser
+  aceito por nenhum app/credential store). Além disso, a premissa técnica
+  está errada: purge de cache do Cloudflare é sobre conteúdo HTTP em
+  cache (assets estáticos, HTML), não tem relação com renovação de
+  certificado TLS — um domínio "proxied" pelo Cloudflare nem usa o
+  certificado de origem pra servir TLS aos visitantes. A real necessidade
+  de purge (manter `certmanager.fausto.app.br` — o próprio app — com
+  cache atualizado depois de um deploy) é uma questão de infraestrutura
+  de implantação deste ambiente específico, não uma funcionalidade que
+  faça sentido oferecer aos certificados que o app gerencia.
 - Expansão opcional de wildcards por labels comuns.
 - Suporte a outras fontes de CT log além do crt.sh (redundância).
 - Mais um provedor de DNS (Route53 ou RFC2136 genérico) — prova adicional

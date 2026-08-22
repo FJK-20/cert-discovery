@@ -76,7 +76,12 @@ class IssuedCertificate:
     issued_at: str
     not_after: str | None
     fullchain_pem: str
-    private_key_pem: str
+    # None só pra certificado importado sem a chave privada (a pessoa não
+    # tinha ela, ou preferiu não colar) — nesse caso o certificado entra
+    # como "só monitorado": aparece no inventário e é avisado quando entra
+    # na janela de expiração, mas não pode ser baixado (não tem o quê) nem
+    # renovado automaticamente por este app.
+    private_key_pem: str | None = None
     # None pros certificados manuais via CSR (não tem como renovar sozinho
     # — precisa de uma pessoa levando um CSR novo pra CA de novo). Pros
     # emitidos via ACME, guarda o dns_mode usado (ver app.acme.models) —

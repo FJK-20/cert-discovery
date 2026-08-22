@@ -609,6 +609,9 @@ async function refreshAcmeCertificates() {
           ? "renovação automática"
           : "renovação manual";
         const caLabel = cert.ca === "zerossl" ? "ZeroSSL" : cert.ca === "letsencrypt" ? "Let's Encrypt" : null;
+        const privkeyLink = cert.has_private_key
+          ? `<a class="button-link" data-requires-role="admin,operador" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/privkey.pem">chave privada</a>`
+          : `<span class="hint">só monitorado (sem chave privada)</span>`;
         return `<div class="acme-cert-row">
           <strong>${escapeHtml(cert.domain)}</strong>
           <span>${escapeHtml(cert.environment)}</span>
@@ -617,7 +620,7 @@ async function refreshAcmeCertificates() {
           <span>expira em ${notAfter}</span>
           <span>${renewalNote}</span>
           <a class="button-link" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/fullchain.pem">certificado</a>
-          <a class="button-link" data-requires-role="admin,operador" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/privkey.pem">chave privada</a>
+          ${privkeyLink}
         </div>`;
       })
       .join("");
@@ -897,6 +900,60 @@ csrGenerateForm.addEventListener("submit", async (event) => {
     await refreshPendingCsrs();
   } catch (err) {
     showCsrError(err.message || "Não foi possível gerar o CSR.");
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+// Importação de certificado existente — converge no mesmo acme_store dos
+// emitidos via ACME/CSR, então basta reusar refreshAcmeCertificates() pra
+// ele aparecer em Renovação depois de importado.
+const importForm = document.getElementById("import-form");
+const importError = document.getElementById("import-error");
+const importSuccess = document.getElementById("import-success");
+const importCertFile = document.getElementById("import-cert-file");
+
+importCertFile.addEventListener("change", () => {
+  const file = importCertFile.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    document.getElementById("import-cert-pem").value = String(reader.result || "");
+  };
+  reader.readAsText(file);
+});
+
+importForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  importError.classList.add("hidden");
+  importSuccess.classList.add("hidden");
+  const certificatePem = document.getElementById("import-cert-pem").value.trim();
+  const privateKeyPem = document.getElementById("import-key-pem").value.trim();
+  const submitBtn = importForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  try {
+    const response = await fetch("/api/import/certificate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        certificate_pem: certificatePem,
+        private_key_pem: privateKeyPem || null,
+      }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Erro ${response.status}`);
+    }
+    const body = await response.json();
+    importForm.reset();
+    importSuccess.textContent = body.has_private_key
+      ? `Certificado de ${body.domain} importado — aparece em Renovação.`
+      : `Certificado de ${body.domain} importado como só monitorado (sem chave privada) — aparece em Renovação.`;
+    importSuccess.classList.remove("hidden");
+    await refreshAcmeCertificates();
+  } catch (err) {
+    importError.textContent = err.message || "Não foi possível importar o certificado.";
+    importError.classList.remove("hidden");
   } finally {
     submitBtn.disabled = false;
   }
