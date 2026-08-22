@@ -1196,6 +1196,8 @@ function applyRoleVisibility() {
   });
 }
 
+const currentUserBadge = document.getElementById("current-user-badge");
+
 async function refreshCurrentUser() {
   try {
     const response = await fetch("/api/auth/me");
@@ -1203,6 +1205,8 @@ async function refreshCurrentUser() {
     const me = await response.json();
     currentUserRole = me.role;
     window.__currentUsername = me.username;
+    currentUserBadge.innerHTML = `${escapeHtml(me.username)} · <strong>${ROLE_LABELS[me.role] || escapeHtml(me.role)}</strong>`;
+    currentUserBadge.classList.remove("hidden");
     applyRoleVisibility();
     if (currentUserRole === "admin" || currentUserRole === "auditor") {
       refreshUsers();
