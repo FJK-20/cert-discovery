@@ -377,6 +377,14 @@ th, td {
   white-space: nowrap;
 }
 
+/* Só o fundo no hover, sem cursor:pointer — diferente de #results-table
+   (linha inteira clicável, abre o modal de detalhe), aqui a ação mora nos
+   controles inline da linha (select de papel, botão de remover etc.), a
+   linha em si não é clicável. */
+tbody tr:hover {
+  background: var(--bg);
+}
+
 td.note-cell {
   white-space: normal;
   color: var(--muted);
