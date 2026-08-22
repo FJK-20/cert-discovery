@@ -63,6 +63,10 @@ class CreateUserRequest(BaseModel):
     role: str = ROLE_LEITOR
 
 
+class UpdateUserRoleRequest(BaseModel):
+    role: str
+
+
 class CreateApiKeyRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     role: str = ROLE_LEITOR
@@ -308,6 +312,35 @@ async def create_user(payload: CreateUserRequest, admin: str = Depends(require_a
     user_store.save(account)
     audit_log.record(
         username=admin, action="user_created", detail=f"{username} (papel: {payload.role})"
+    )
+    return {"ok": True}
+
+
+@router.patch("/users/{username}/role")
+async def update_user_role(
+    username: str, payload: UpdateUserRoleRequest, admin: str = Depends(require_admin)
+) -> dict:
+    if payload.role not in ROLES:
+        raise HTTPException(status_code=400, detail=f"Papel inválido — use um de: {ROLES}.")
+    account = user_store.load(username)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+    if (
+        account.role == ROLE_ADMIN
+        and payload.role != ROLE_ADMIN
+        and user_store.count_admins() <= 1
+    ):
+        raise HTTPException(
+            status_code=400, detail="Não é possível rebaixar o último administrador."
+        )
+
+    old_role = account.role
+    account.role = payload.role
+    user_store.save(account)
+    audit_log.record(
+        username=admin,
+        action="user_role_changed",
+        detail=f"{username}: {old_role} -> {payload.role}",
     )
     return {"ok": True}
 

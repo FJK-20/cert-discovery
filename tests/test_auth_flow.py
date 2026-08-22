@@ -375,6 +375,70 @@ def test_cannot_delete_last_admin(tmp_path, monkeypatch):
     assert [u["username"] for u in users] == ["admin"]
 
 
+def test_admin_can_change_a_users_role(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    client.post(
+        "/api/auth/users",
+        json={"username": "viewer", "password": "readonlypw", "role": "leitor"},
+    )
+    response = client.patch("/api/auth/users/viewer/role", json={"role": "operador"})
+    assert response.status_code == 200
+    users = client.get("/api/auth/users").json()
+    assert {"username": "viewer", "role": "operador", "mfa_enabled": False} in users
+
+
+def test_cannot_change_role_to_invalid_value(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    client.post(
+        "/api/auth/users",
+        json={"username": "viewer", "password": "readonlypw", "role": "leitor"},
+    )
+    response = client.patch("/api/auth/users/viewer/role", json={"role": "superuser"})
+    assert response.status_code == 400
+
+
+def test_cannot_change_role_of_unknown_user(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    response = client.patch("/api/auth/users/ghost/role", json={"role": "operador"})
+    assert response.status_code == 404
+
+
+def test_cannot_demote_last_admin(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    response = client.patch("/api/auth/users/admin/role", json={"role": "leitor"})
+    assert response.status_code == 400
+    users = client.get("/api/auth/users").json()
+    assert {"username": "admin", "role": "admin", "mfa_enabled": False} in users
+
+
+def test_can_demote_an_admin_when_another_admin_exists(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    client.post(
+        "/api/auth/users",
+        json={"username": "second-admin", "password": "anotheradminpw", "role": "admin"},
+    )
+    response = client.patch("/api/auth/users/second-admin/role", json={"role": "leitor"})
+    assert response.status_code == 200
+
+
+def test_only_admin_can_change_roles(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    client.post(
+        "/api/auth/users",
+        json={"username": "viewer", "password": "readonlypw", "role": "leitor"},
+    )
+    client.post("/api/auth/logout")
+    client.post("/api/auth/login", json={"username": "viewer", "password": "readonlypw"})
+    response = client.patch("/api/auth/users/viewer/role", json={"role": "admin"})
+    assert response.status_code == 403
+
+
 def test_new_login_fails_for_a_deleted_user(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     client.post("/api/auth/setup", json=ADMIN)

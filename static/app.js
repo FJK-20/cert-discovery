@@ -1221,8 +1221,9 @@ async function refreshCurrentUser() {
   }
 }
 
-// Usuários (admin only) — criar/listar/remover.
+// Usuários (admin only) — criar/listar/trocar papel/remover.
 const ROLE_LABELS = { admin: "Admin", operador: "Operador", auditor: "Auditor", leitor: "Leitor" };
+const ROLES_ORDERED = ["leitor", "operador", "auditor", "admin"];
 const usersBody = document.getElementById("users-body");
 const usersError = document.getElementById("users-error");
 const userCreateForm = document.getElementById("user-create-form");
@@ -1239,9 +1240,20 @@ async function refreshUsers() {
         const deleteBtn = isSelf
           ? ""
           : `<button type="button" class="button-link user-delete-btn" data-requires-role="admin" data-username="${escapeHtml(user.username)}">remover</button>`;
+        // Só admin pode trocar papel (auditor enxerga a lista, mas não age
+        // em nada — ver o texto no topo do card "Usuários").
+        const roleCell =
+          currentUserRole === "admin"
+            ? `<select class="user-role-select" data-username="${escapeHtml(user.username)}">
+                ${ROLES_ORDERED.map(
+                  (role) =>
+                    `<option value="${role}"${role === user.role ? " selected" : ""}>${ROLE_LABELS[role]}</option>`
+                ).join("")}
+              </select>`
+            : ROLE_LABELS[user.role] || escapeHtml(user.role);
         return `<tr>
           <td>${escapeHtml(user.username)}</td>
-          <td>${ROLE_LABELS[user.role] || escapeHtml(user.role)}</td>
+          <td>${roleCell}</td>
           <td>${mfaLabel}</td>
           <td>${deleteBtn}</td>
         </tr>`;
@@ -1252,6 +1264,34 @@ async function refreshUsers() {
     // mantém a lista anterior se o fetch falhar
   }
 }
+
+usersBody.addEventListener("change", async (event) => {
+  const select = event.target.closest(".user-role-select");
+  if (!select) return;
+  usersError.classList.add("hidden");
+  const username = select.dataset.username;
+  const role = select.value;
+  select.disabled = true;
+  try {
+    const response = await fetch(`/api/auth/users/${encodeURIComponent(username)}/role`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Erro ${response.status}`);
+    }
+    await refreshAuditLog();
+  } catch (err) {
+    usersError.textContent = err.message || "Não foi possível trocar o papel.";
+    usersError.classList.remove("hidden");
+  } finally {
+    // Sempre atualiza pra refletir o estado real — reverte o <select> se a
+    // troca falhou, confirma se deu certo.
+    await refreshUsers();
+  }
+});
 
 userCreateForm.addEventListener("submit", async (event) => {
   event.preventDefault();

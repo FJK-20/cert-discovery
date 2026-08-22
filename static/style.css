@@ -145,6 +145,15 @@ form select {
   margin-bottom: 1rem;
 }
 
+.user-role-select {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
 details {
   margin-bottom: 1rem;
 }
