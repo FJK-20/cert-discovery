@@ -130,6 +130,26 @@ main {
   box-shadow: var(--shadow-card);
 }
 
+/* Sprite de ícones inline (ver <defs> no topo do <body>) — cor fixa na
+   marca (não currentColor) de propósito: os ícones funcionam como
+   destaque visual consistente, não como parte do texto do título. */
+.icon {
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.2em;
+  stroke: var(--brand);
+  fill: none;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+.icon-lg {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
 /* !important deliberado: .hidden é utilitária, precisa vencer qualquer
    classe de componente presente no mesmo elemento (ex: "button-link-block
    hidden") não importa a ordem de declaração no arquivo — sem isso, um
