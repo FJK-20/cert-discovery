@@ -333,6 +333,7 @@ const SCREEN_NAMES = [
   "dashboard",
   "inventario",
   "emissao",
+  "certificados",
   "renovacao",
   "cadastros",
   "autoridades",
@@ -531,7 +532,11 @@ const acmeResultMessage = document.getElementById("acme-result-message");
 const acmeDownloadCert = document.getElementById("acme-download-cert");
 const acmeDownloadKey = document.getElementById("acme-download-key");
 const acmeError = document.getElementById("acme-error");
-const acmeCertsList = document.getElementById("acme-certs-list");
+const certsList = document.getElementById("certs-list");
+const certsSearch = document.getElementById("certs-search");
+const certsFilterCa = document.getElementById("certs-filter-ca");
+const certsFilterMode = document.getElementById("certs-filter-mode");
+const certsFilterStatus = document.getElementById("certs-filter-status");
 
 const ACME_TERMINAL_STATES = new Set(["done", "failed"]);
 let currentAcmeJobId = null;
@@ -612,49 +617,90 @@ async function refreshAcmeStatus() {
   }
 }
 
+const AUTO_RENEWABLE_MODES = new Set(["cloudflare", "azure_dns", "cname_delegation"]);
+let allCertificates = [];
+
+// Status derivado (não vem pronto da API): "monitorado" é sobre não ter
+// chave, os outros três são sobre prazo de expiração — mesmo corte de
+// 30 dias usado nos cards de urgência do Dashboard.
+function certStatus(cert) {
+  if (!cert.has_private_key) return "monitored";
+  if (!cert.not_after) return "valid";
+  const daysLeft = (new Date(cert.not_after) - new Date()) / (1000 * 60 * 60 * 24);
+  if (daysLeft < 0) return "expired";
+  if (daysLeft < 30) return "expiring";
+  return "valid";
+}
+
+function renderCertificateRow(cert) {
+  const issuedAt = formatDateTime(cert.issued_at);
+  const notAfter = formatDateTime(cert.not_after);
+  const renewalNote = AUTO_RENEWABLE_MODES.has(cert.dns_mode)
+    ? "renovação automática"
+    : "renovação manual";
+  const caLabel = cert.ca === "zerossl" ? "ZeroSSL" : cert.ca === "letsencrypt" ? "Let's Encrypt" : null;
+  const privkeyLink = cert.has_private_key
+    ? `<a class="button-link" data-requires-role="admin,operador" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/privkey.pem">chave privada</a>`
+    : `<span class="hint">só monitorado (sem chave privada)</span>`;
+  const contextParts = [
+    cert.organization_id ? catalogNameCache.organization[cert.organization_id] : null,
+    cert.system_id ? catalogNameCache.system[cert.system_id] : null,
+    cert.project_id ? catalogNameCache.project[cert.project_id] : null,
+  ].filter(Boolean);
+  const contextLine = contextParts.length
+    ? `<span class="hint">${escapeHtml(contextParts.join(" · "))}</span>`
+    : "";
+  return `<div class="acme-cert-row">
+    <strong>${escapeHtml(cert.domain)}</strong>
+    <span>${escapeHtml(cert.environment)}</span>
+    ${caLabel ? `<span>${caLabel}</span>` : ""}
+    <span>emitido em ${issuedAt}</span>
+    <span>expira em ${notAfter}</span>
+    <span>${renewalNote}</span>
+    ${contextLine}
+    <a class="button-link" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/fullchain.pem">certificado</a>
+    ${privkeyLink}
+  </div>`;
+}
+
+function applyCertificateFilters() {
+  if (!certsList) return;
+  const search = certsSearch.value.trim().toLowerCase();
+  const caFilter = certsFilterCa.value;
+  const modeFilter = certsFilterMode.value;
+  const statusFilter = certsFilterStatus.value;
+
+  const filtered = allCertificates.filter((cert) => {
+    if (search && !cert.domain.toLowerCase().includes(search)) return false;
+    if (caFilter === "none" && cert.ca) return false;
+    if (caFilter && caFilter !== "none" && cert.ca !== caFilter) return false;
+    if (modeFilter === "none" && cert.dns_mode) return false;
+    if (modeFilter && modeFilter !== "none" && cert.dns_mode !== modeFilter) return false;
+    if (statusFilter && certStatus(cert) !== statusFilter) return false;
+    return true;
+  });
+
+  if (!allCertificates.length) {
+    certsList.innerHTML = "Nenhum certificado emitido ainda.";
+  } else if (!filtered.length) {
+    certsList.innerHTML = "Nenhum certificado bate com o filtro atual.";
+  } else {
+    certsList.innerHTML = filtered.map(renderCertificateRow).join("");
+    applyRoleVisibility();
+  }
+}
+
+[certsSearch, certsFilterCa, certsFilterMode, certsFilterStatus].forEach((el) => {
+  if (!el) return;
+  el.addEventListener(el.tagName === "SELECT" ? "change" : "input", applyCertificateFilters);
+});
+
 async function refreshAcmeCertificates() {
   try {
     const response = await fetch("/api/acme/certificates");
     if (!response.ok) return;
-    const certs = await response.json();
-    if (!certs.length) {
-      acmeCertsList.innerHTML = "Nenhum certificado emitido ainda.";
-      return;
-    }
-    const AUTO_RENEWABLE = new Set(["cloudflare", "azure_dns", "cname_delegation"]);
-    acmeCertsList.innerHTML = certs
-      .map((cert) => {
-        const issuedAt = formatDateTime(cert.issued_at);
-        const notAfter = formatDateTime(cert.not_after);
-        const renewalNote = AUTO_RENEWABLE.has(cert.dns_mode)
-          ? "renovação automática"
-          : "renovação manual";
-        const caLabel = cert.ca === "zerossl" ? "ZeroSSL" : cert.ca === "letsencrypt" ? "Let's Encrypt" : null;
-        const privkeyLink = cert.has_private_key
-          ? `<a class="button-link" data-requires-role="admin,operador" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/privkey.pem">chave privada</a>`
-          : `<span class="hint">só monitorado (sem chave privada)</span>`;
-        const contextParts = [
-          cert.organization_id ? catalogNameCache.organization[cert.organization_id] : null,
-          cert.system_id ? catalogNameCache.system[cert.system_id] : null,
-          cert.project_id ? catalogNameCache.project[cert.project_id] : null,
-        ].filter(Boolean);
-        const contextLine = contextParts.length
-          ? `<span class="hint">${escapeHtml(contextParts.join(" · "))}</span>`
-          : "";
-        return `<div class="acme-cert-row">
-          <strong>${escapeHtml(cert.domain)}</strong>
-          <span>${escapeHtml(cert.environment)}</span>
-          ${caLabel ? `<span>${caLabel}</span>` : ""}
-          <span>emitido em ${issuedAt}</span>
-          <span>expira em ${notAfter}</span>
-          <span>${renewalNote}</span>
-          ${contextLine}
-          <a class="button-link" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/fullchain.pem">certificado</a>
-          ${privkeyLink}
-        </div>`;
-      })
-      .join("");
-    applyRoleVisibility();
+    allCertificates = await response.json();
+    applyCertificateFilters();
   } catch {
     // mantém a lista anterior se o fetch falhar
   }

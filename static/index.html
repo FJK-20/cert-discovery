@@ -55,6 +55,10 @@
           <svg class="icon"><use href="#icon-shield-check"/></svg>
           <span>Emissão</span>
         </a>
+        <a href="#certificados" data-screen="certificados">
+          <svg class="icon"><use href="#icon-certificate"/></svg>
+          <span>Certificados</span>
+        </a>
         <a href="#renovacao" data-screen="renovacao">
           <svg class="icon"><use href="#icon-refresh"/></svg>
           <span>Renovação</span>
@@ -427,6 +431,42 @@
     </section>
     </div>
 
+    <div id="screen-certificados" class="screen hidden">
+    <section class="card">
+      <h2><svg class="icon"><use href="#icon-certificate"/></svg> Certificados</h2>
+      <p class="hint">
+        Todos os certificados emitidos, importados ou concluídos via CSR —
+        busca por domínio e filtro por CA/modo/status. Fila e histórico de
+        tentativas continuam em <a class="button-link" href="#renovacao">Renovação</a>.
+      </p>
+      <div class="certs-filters">
+        <input id="certs-search" type="text" placeholder="Buscar por domínio..." autocomplete="off" />
+        <select id="certs-filter-ca">
+          <option value="">Toda CA</option>
+          <option value="letsencrypt">Let's Encrypt</option>
+          <option value="zerossl">ZeroSSL</option>
+          <option value="none">Sem CA (manual/importado)</option>
+        </select>
+        <select id="certs-filter-mode">
+          <option value="">Todo modo</option>
+          <option value="cloudflare">Cloudflare</option>
+          <option value="azure_dns">Azure DNS</option>
+          <option value="cname_delegation">Delegação CNAME</option>
+          <option value="manual">Manual (TXT)</option>
+          <option value="none">Sem renovação automática</option>
+        </select>
+        <select id="certs-filter-status">
+          <option value="">Todo status</option>
+          <option value="valid">Válido</option>
+          <option value="expiring">Expirando (&lt; 30d)</option>
+          <option value="expired">Expirado</option>
+          <option value="monitored">Só monitorado</option>
+        </select>
+      </div>
+      <div id="certs-list" class="hint">Nenhum certificado emitido ainda.</div>
+    </section>
+    </div>
+
     <div id="screen-renovacao" class="screen hidden">
     <section class="card">
       <h2><svg class="icon"><use href="#icon-refresh"/></svg> Renovação</h2>
@@ -442,8 +482,10 @@
       <p id="scheduler-status" class="hint"></p>
       <button type="button" id="scheduler-check-now-btn" data-requires-role="admin,operador">Verificar agora</button>
       <p id="scheduler-check-message" class="hint"></p>
-      <h3>Certificados</h3>
-      <div id="acme-certs-list" class="hint">Nenhum certificado emitido ainda.</div>
+      <p class="hint">
+        Lista completa de certificados, com busca e filtro, em
+        <a class="button-link" href="#certificados">Certificados</a>.
+      </p>
     </section>
 
     <section class="card">
