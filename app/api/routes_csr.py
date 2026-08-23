@@ -32,6 +32,12 @@ class CreateCsrRequest(BaseModel):
 
 class CompleteCsrRequest(BaseModel):
     certificate_pem: str = Field(..., min_length=1, max_length=200_000)
+    # Rastro de auditoria (Fase 8) — por que esse certificado específico
+    # foi pedido. Metadado só de auditoria: não afeta a lógica de emissão,
+    # não vira um sistema de aprovação separado (a ação em si continua
+    # exigindo só o papel operador de sempre).
+    reason: str = Field("", max_length=500)
+    ticket_number: str = Field("", max_length=100)
 
 
 def _client_key(request: Request) -> str:
@@ -144,7 +150,12 @@ async def complete_csr(
     )
     acme_store.save_certificate(cert)
     pending_csr_store.delete(csr_id)
-    audit_log.record(username=username, action="csr_completed", detail=cert.domain)
+    detail = cert.domain
+    if payload.reason.strip():
+        detail += f" — motivo: {payload.reason.strip()}"
+    if payload.ticket_number.strip():
+        detail += f" — chamado: {payload.ticket_number.strip()}"
+    audit_log.record(username=username, action="csr_completed", detail=detail)
     return {"ok": True, "certificate_id": cert.id}
 
 

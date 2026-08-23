@@ -914,6 +914,10 @@ async function refreshPendingCsrs() {
           <form class="csr-complete-form" data-requires-role="admin,operador">
             <label>Cole aqui o certificado recebido da CA (PEM)</label>
             <textarea class="csr-cert-input" rows="6" placeholder="-----BEGIN CERTIFICATE-----" required></textarea>
+            <label>Motivo (opcional — fica no log de auditoria)</label>
+            <input type="text" class="csr-reason-input" placeholder="Por que esse certificado foi pedido" />
+            <label>Número do chamado (opcional)</label>
+            <input type="text" class="csr-ticket-input" />
             <button type="submit">Concluir e salvar certificado</button>
           </form>
           <p class="csr-item-message hint"></p>
@@ -1039,6 +1043,8 @@ csrPendingList.addEventListener("submit", async (event) => {
   const id = item.dataset.csrId;
   const messageEl = item.querySelector(".csr-item-message");
   const certPem = form.querySelector(".csr-cert-input").value.trim();
+  const reason = form.querySelector(".csr-reason-input").value.trim();
+  const ticketNumber = form.querySelector(".csr-ticket-input").value.trim();
   const submitBtn = form.querySelector("button[type=submit]");
   submitBtn.disabled = true;
   messageEl.textContent = "";
@@ -1046,7 +1052,11 @@ csrPendingList.addEventListener("submit", async (event) => {
     const response = await fetch(`/api/csr/${encodeURIComponent(id)}/complete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ certificate_pem: certPem }),
+      body: JSON.stringify({
+        certificate_pem: certPem,
+        reason,
+        ticket_number: ticketNumber,
+      }),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.detail || `Erro ${response.status}`);
