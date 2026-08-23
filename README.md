@@ -587,6 +587,38 @@ específicas):
   pra qualquer CA que não fale ACME; um conector direto de API é uma
   camada a mais, não substitui o CSR manual.
 
+**Fase 8 — funcionalidades vistas num Certificate Manager real** (a
+partir de uma comparação direta com uma instância real em produção, não
+a página de marketing):
+
+- **Fila de requisições com contexto** — campos opcionais de ambiente
+  (dev/homolog/produção) e sistema/projeto (texto livre) na
+  emissão/importação, sem virar um cadastro novo nem um fluxo de
+  aprovação em várias etapas — só contexto pra filtrar/organizar depois.
+- **Justificativa/motivo no CSR manual** — motivo + número de chamado
+  opcionais na conclusão do CSR, registrados no log de auditoria que já
+  existe (não duplica como sistema de aprovação separado).
+- **Dashboard com mais dimensões** — quebra por CA, ambiente, tamanho e
+  algoritmo de chave, além dos gráficos por emissor/prazo que já
+  existem; a maior parte não exige mudança de schema (`ca`/`dns_mode` já
+  existem no registro do certificado).
+- **Radar de risco** — gráfico radar (CA × dias até expirar), mesmo
+  princípio dos gráficos de barra já existentes (SVG desenhado à mão,
+  sem lib externa).
+- **Página dedicada de Autoridades/Integrações** — hoje a configuração de
+  CA/DNS fica espalhada em blocos dentro de Emissão; uma tela própria
+  centraliza isso, Emissão passa só a consumir o que já está configurado.
+- **Página dedicada de Certificados** — separada de Renovação (que fica
+  focada em fila/histórico de tentativas): busca, filtro por CA/ambiente/
+  status, sem precisar abrir Renovação pra achar um certificado
+  específico.
+
+Deliberadamente **não** replica as dimensões multi-tenant do produto de
+referência (Organizações/Sistemas/Projetos como cadastros próprios com
+CRUD) — isso serve um departamento de TI gerenciando dezenas de sistemas
+internos; pra uma ferramenta de portfólio de um usuário só, isso seria
+peso sem benefício real.
+
 ## Licença
 
 MIT — veja [LICENSE](LICENSE).
