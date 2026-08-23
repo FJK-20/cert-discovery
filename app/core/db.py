@@ -85,6 +85,52 @@ CREATE TABLE IF NOT EXISTS api_keys (
     last_used_at TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
+
+-- Cadastros (Fase 8) — dimensões de contexto pra emissão/importação de
+-- certificado (organização, sistema, projeto responsáveis). Organização
+-- tem campos próprios (endereço/contato); sistema e projeto são
+-- deliberadamente idênticos em formato (nome+descrição+status) — no
+-- produto real que inspirou isso os dois já eram só listas nomeadas
+-- simples, não cadastros ricos — mas cada um com sua própria tabela
+-- (não um discriminador numa tabela só), pra ter identidade e namespace
+-- de id próprios como qualquer cadastro de verdade.
+CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    unit TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT '',
+    country TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_organizations_name ON organizations(name);
+
+CREATE TABLE IF NOT EXISTS systems (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_systems_name ON systems(name);
+
+CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_projects_name ON projects(name);
 """
 
 # Colunas adicionadas depois da criação inicial da tabela — `CREATE TABLE

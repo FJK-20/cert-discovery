@@ -329,7 +329,14 @@ document.addEventListener("keydown", (event) => {
 // Inventário / Emissão / Renovação / Configurações), roteada pelo hash da
 // URL. Isso dá link direto e botão voltar/avançar do navegador de graça,
 // sem precisar de framework nenhum.
-const SCREEN_NAMES = ["dashboard", "inventario", "emissao", "renovacao", "configuracoes"];
+const SCREEN_NAMES = [
+  "dashboard",
+  "inventario",
+  "emissao",
+  "renovacao",
+  "cadastros",
+  "configuracoes",
+];
 const screenSections = Object.fromEntries(
   SCREEN_NAMES.map((name) => [name, document.getElementById(`screen-${name}`)])
 );
@@ -635,6 +642,14 @@ async function refreshAcmeCertificates() {
         const privkeyLink = cert.has_private_key
           ? `<a class="button-link" data-requires-role="admin,operador" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/privkey.pem">chave privada</a>`
           : `<span class="hint">só monitorado (sem chave privada)</span>`;
+        const contextParts = [
+          cert.organization_id ? catalogNameCache.organization[cert.organization_id] : null,
+          cert.system_id ? catalogNameCache.system[cert.system_id] : null,
+          cert.project_id ? catalogNameCache.project[cert.project_id] : null,
+        ].filter(Boolean);
+        const contextLine = contextParts.length
+          ? `<span class="hint">${escapeHtml(contextParts.join(" · "))}</span>`
+          : "";
         return `<div class="acme-cert-row">
           <strong>${escapeHtml(cert.domain)}</strong>
           <span>${escapeHtml(cert.environment)}</span>
@@ -642,6 +657,7 @@ async function refreshAcmeCertificates() {
           <span>emitido em ${issuedAt}</span>
           <span>expira em ${notAfter}</span>
           <span>${renewalNote}</span>
+          ${contextLine}
           <a class="button-link" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/fullchain.pem">certificado</a>
           ${privkeyLink}
         </div>`;
@@ -749,12 +765,23 @@ acmeRenewForm.addEventListener("submit", async (event) => {
   const environment = document.getElementById("acme-environment").value;
   const dnsMode = acmeDnsMode.value;
   const ca = acmeCa.value;
+  const organizationId = document.getElementById("acme-organization").value || null;
+  const systemId = document.getElementById("acme-system").value || null;
+  const projectId = document.getElementById("acme-project").value || null;
 
   try {
     const response = await fetch("/api/acme/renew", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domain, environment, dns_mode: dnsMode, ca }),
+      body: JSON.stringify({
+        domain,
+        environment,
+        dns_mode: dnsMode,
+        ca,
+        organization_id: organizationId,
+        system_id: systemId,
+        project_id: projectId,
+      }),
     });
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
@@ -908,12 +935,20 @@ csrGenerateForm.addEventListener("submit", async (event) => {
     .map((line) => line.trim())
     .filter(Boolean);
   const submitBtn = csrGenerateForm.querySelector("button[type=submit]");
+  const csrOrganizationId = document.getElementById("csr-organization").value || null;
+  const csrSystemId = document.getElementById("csr-system").value || null;
+  const csrProjectId = document.getElementById("csr-project").value || null;
   submitBtn.disabled = true;
   try {
     const response = await fetch("/api/csr", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domains }),
+      body: JSON.stringify({
+        domains,
+        organization_id: csrOrganizationId,
+        system_id: csrSystemId,
+        project_id: csrProjectId,
+      }),
     });
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
@@ -952,6 +987,9 @@ importForm.addEventListener("submit", async (event) => {
   importSuccess.classList.add("hidden");
   const certificatePem = document.getElementById("import-cert-pem").value.trim();
   const privateKeyPem = document.getElementById("import-key-pem").value.trim();
+  const importOrganizationId = document.getElementById("import-organization").value || null;
+  const importSystemId = document.getElementById("import-system").value || null;
+  const importProjectId = document.getElementById("import-project").value || null;
   const submitBtn = importForm.querySelector("button[type=submit]");
   submitBtn.disabled = true;
   try {
@@ -961,6 +999,9 @@ importForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({
         certificate_pem: certificatePem,
         private_key_pem: privateKeyPem || null,
+        organization_id: importOrganizationId,
+        system_id: importSystemId,
+        project_id: importProjectId,
       }),
     });
     if (!response.ok) {
@@ -1606,7 +1647,307 @@ auditLogVerifyBtn.addEventListener("click", async () => {
   }
 });
 
+// Cadastros (Fase 8): Organizações/Sistemas/Projetos — contexto opcional
+// pra emissão/importação/CSR. Leitura liberada pra qualquer sessão
+// (populam os <select> de Emissão/CSR/Importar mesmo pra quem não vê a
+// tela de Cadastros); escrita (criar/editar/remover) é admin-only, mesmo
+// padrão de qualquer outra configuração do sistema.
+const CATALOG_SELECTS = {
+  organization: ["acme-organization", "csr-organization", "import-organization"],
+  system: ["acme-system", "csr-system", "import-system"],
+  project: ["acme-project", "csr-project", "import-project"],
+};
+
+// Os <select> dos formulários só precisam do id, mas listagens (Renovação)
+// mostram o nome — cache simples id->nome, preenchido toda vez que um
+// cadastro é recarregado, sem precisar de outro fetch só pra resolver nome.
+const catalogNameCache = { organization: {}, system: {}, project: {} };
+
+function populateCatalogSelects(kind, items) {
+  catalogNameCache[kind] = Object.fromEntries(items.map((item) => [item.id, item.name]));
+  for (const selectId of CATALOG_SELECTS[kind]) {
+    const select = document.getElementById(selectId);
+    if (!select) continue;
+    const previousValue = select.value;
+    const placeholder = select.options[0];
+    select.innerHTML = "";
+    select.appendChild(placeholder);
+    items
+      .filter((item) => item.status === "active")
+      .forEach((item) => {
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.textContent = item.name;
+        select.appendChild(option);
+      });
+    if ([...select.options].some((o) => o.value === previousValue)) {
+      select.value = previousValue;
+    }
+  }
+}
+
+// Organizações
+const orgsBody = document.getElementById("orgs-body");
+const orgsEmpty = document.getElementById("orgs-empty");
+const orgsError = document.getElementById("orgs-error");
+const orgForm = document.getElementById("org-form");
+const orgFormDetails = document.getElementById("org-form-details");
+const orgFormSubmit = document.getElementById("org-form-submit");
+const orgFormCancel = document.getElementById("org-form-cancel");
+
+async function refreshOrganizations() {
+  try {
+    const response = await fetch("/api/organizations");
+    if (!response.ok) return;
+    const orgs = await response.json();
+    populateCatalogSelects("organization", orgs);
+    orgsEmpty.classList.toggle("hidden", orgs.length > 0);
+    orgsBody.innerHTML = orgs
+      .map(
+        (org) => `<tr>
+          <td>${escapeHtml(org.name)}</td>
+          <td>${escapeHtml(org.unit || "—")}</td>
+          <td>${escapeHtml([org.city, org.state].filter(Boolean).join("/") || "—")}</td>
+          <td>${escapeHtml(org.category || "—")}</td>
+          <td>${org.status === "active" ? "Ativo" : "Inativo"}</td>
+          <td>
+            <button type="button" class="button-link org-edit-btn" data-requires-role="admin" data-id="${escapeHtml(org.id)}">editar</button>
+            <button type="button" class="button-link org-delete-btn" data-requires-role="admin" data-id="${escapeHtml(org.id)}" data-name="${escapeHtml(org.name)}">remover</button>
+          </td>
+        </tr>`
+      )
+      .join("");
+    applyRoleVisibility();
+  } catch {
+    // mantém a lista anterior se o fetch falhar
+  }
+}
+
+function resetOrgForm() {
+  orgForm.reset();
+  document.getElementById("org-form-id").value = "";
+  orgFormSubmit.textContent = "Criar organização";
+  orgFormCancel.classList.add("hidden");
+}
+
+orgForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  orgsError.classList.add("hidden");
+  const editId = document.getElementById("org-form-id").value;
+  const payload = {
+    name: document.getElementById("org-name").value.trim(),
+    unit: document.getElementById("org-unit").value.trim(),
+    city: document.getElementById("org-city").value.trim(),
+    state: document.getElementById("org-state").value.trim(),
+    country: document.getElementById("org-country").value.trim(),
+    phone: document.getElementById("org-phone").value.trim(),
+    category: document.getElementById("org-category").value.trim(),
+    status: document.getElementById("org-status").value,
+  };
+  const submitBtn = orgForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  try {
+    const response = await fetch(
+      editId ? `/api/organizations/${encodeURIComponent(editId)}` : "/api/organizations",
+      {
+        method: editId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.detail || `Erro ${response.status}`);
+    }
+    resetOrgForm();
+    orgFormDetails.open = false;
+    await refreshOrganizations();
+  } catch (err) {
+    orgsError.textContent = err.message || "Não foi possível salvar a organização.";
+    orgsError.classList.remove("hidden");
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+orgFormCancel.addEventListener("click", resetOrgForm);
+
+orgsBody.addEventListener("click", async (event) => {
+  const editBtn = event.target.closest(".org-edit-btn");
+  const deleteBtn = event.target.closest(".org-delete-btn");
+  if (editBtn) {
+    const response = await fetch("/api/organizations");
+    const orgs = await response.json();
+    const org = orgs.find((o) => o.id === editBtn.dataset.id);
+    if (!org) return;
+    document.getElementById("org-form-id").value = org.id;
+    document.getElementById("org-name").value = org.name;
+    document.getElementById("org-unit").value = org.unit;
+    document.getElementById("org-city").value = org.city;
+    document.getElementById("org-state").value = org.state;
+    document.getElementById("org-country").value = org.country;
+    document.getElementById("org-phone").value = org.phone;
+    document.getElementById("org-category").value = org.category;
+    document.getElementById("org-status").value = org.status;
+    orgFormSubmit.textContent = "Salvar alterações";
+    orgFormCancel.classList.remove("hidden");
+    orgFormDetails.open = true;
+    return;
+  }
+  if (deleteBtn) {
+    if (!confirm(`Remover a organização "${deleteBtn.dataset.name}"?`)) return;
+    try {
+      const response = await fetch(`/api/organizations/${encodeURIComponent(deleteBtn.dataset.id)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error(errorBody.detail || `Erro ${response.status}`);
+      }
+      await refreshOrganizations();
+    } catch (err) {
+      orgsError.textContent = err.message || "Não foi possível remover a organização.";
+      orgsError.classList.remove("hidden");
+    }
+  }
+});
+
+// Sistemas e Projetos — estruturalmente idênticos (nome + descrição +
+// status), uma função genérica cobre os dois em vez de duas cópias coladas.
+function setupCatalogCrud(kind, endpoint) {
+  const body = document.getElementById(`${kind}s-body`);
+  const empty = document.getElementById(`${kind}s-empty`);
+  const errorEl = document.getElementById(`${kind}s-error`);
+  const form = document.getElementById(`${kind}-form`);
+  const formDetails = document.getElementById(`${kind}-form-details`);
+  const formSubmit = document.getElementById(`${kind}-form-submit`);
+  const formCancel = document.getElementById(`${kind}-form-cancel`);
+  const labelCap = kind === "system" ? "sistema" : "projeto";
+
+  function resetForm() {
+    form.reset();
+    document.getElementById(`${kind}-form-id`).value = "";
+    formSubmit.textContent = `Criar ${labelCap}`;
+    formCancel.classList.add("hidden");
+  }
+
+  async function refresh() {
+    try {
+      const response = await fetch(endpoint);
+      if (!response.ok) return;
+      const items = await response.json();
+      populateCatalogSelects(kind, items);
+      empty.classList.toggle("hidden", items.length > 0);
+      body.innerHTML = items
+        .map(
+          (item) => `<tr>
+            <td>${escapeHtml(item.name)}</td>
+            <td>${escapeHtml(item.description || "—")}</td>
+            <td>${item.status === "active" ? "Ativo" : "Inativo"}</td>
+            <td>
+              <button type="button" class="button-link ${kind}-edit-btn" data-requires-role="admin" data-id="${escapeHtml(item.id)}">editar</button>
+              <button type="button" class="button-link ${kind}-delete-btn" data-requires-role="admin" data-id="${escapeHtml(item.id)}" data-name="${escapeHtml(item.name)}">remover</button>
+            </td>
+          </tr>`
+        )
+        .join("");
+      applyRoleVisibility();
+    } catch {
+      // mantém a lista anterior se o fetch falhar
+    }
+    return;
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    errorEl.classList.add("hidden");
+    const editId = document.getElementById(`${kind}-form-id`).value;
+    const payload = {
+      name: document.getElementById(`${kind}-name`).value.trim(),
+      description: document.getElementById(`${kind}-description`).value.trim(),
+      status: document.getElementById(`${kind}-status`).value,
+    };
+    const submitBtn = form.querySelector("button[type=submit]");
+    submitBtn.disabled = true;
+    try {
+      const response = await fetch(
+        editId ? `${endpoint}/${encodeURIComponent(editId)}` : endpoint,
+        {
+          method: editId ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error(errorBody.detail || `Erro ${response.status}`);
+      }
+      resetForm();
+      formDetails.open = false;
+      await refresh();
+    } catch (err) {
+      errorEl.textContent = err.message || `Não foi possível salvar o ${labelCap}.`;
+      errorEl.classList.remove("hidden");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  formCancel.addEventListener("click", resetForm);
+
+  body.addEventListener("click", async (event) => {
+    const editBtn = event.target.closest(`.${kind}-edit-btn`);
+    const deleteBtn = event.target.closest(`.${kind}-delete-btn`);
+    if (editBtn) {
+      const response = await fetch(endpoint);
+      const items = await response.json();
+      const item = items.find((i) => i.id === editBtn.dataset.id);
+      if (!item) return;
+      document.getElementById(`${kind}-form-id`).value = item.id;
+      document.getElementById(`${kind}-name`).value = item.name;
+      document.getElementById(`${kind}-description`).value = item.description;
+      document.getElementById(`${kind}-status`).value = item.status;
+      formSubmit.textContent = "Salvar alterações";
+      formCancel.classList.remove("hidden");
+      formDetails.open = true;
+      return;
+    }
+    if (deleteBtn) {
+      if (!confirm(`Remover "${deleteBtn.dataset.name}"?`)) return;
+      try {
+        const response = await fetch(`${endpoint}/${encodeURIComponent(deleteBtn.dataset.id)}`, {
+          method: "DELETE",
+        });
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => ({}));
+          throw new Error(errorBody.detail || `Erro ${response.status}`);
+        }
+        await refresh();
+      } catch (err) {
+        errorEl.textContent = err.message || `Não foi possível remover o ${labelCap}.`;
+        errorEl.classList.remove("hidden");
+      }
+    }
+  });
+
+  return refresh;
+}
+
+const refreshSystems = setupCatalogCrud("system", "/api/systems");
+const refreshProjects = setupCatalogCrud("project", "/api/projects");
+
+function refreshCatalogs() {
+  refreshOrganizations();
+  refreshSystems();
+  refreshProjects();
+}
+
 refreshCurrentUser();
+// Carrega os cadastros sempre (não só pra quem vê a tela de Cadastros) —
+// os <select> de Emissão/CSR/Importar precisam deles pra qualquer papel
+// que possa criar certificado (operador não vê Cadastros, mas escolhe
+// entre o que já está cadastrado lá).
+refreshCatalogs();
 
 // Rota inicial — por último, depois que toda função/const que uma tela
 // pode precisar (ex: refreshSecurityStatus) já foi definida.

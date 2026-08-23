@@ -27,6 +27,9 @@ router = APIRouter(prefix="/api/import", dependencies=[Depends(require_session)]
 class ImportCertificateRequest(BaseModel):
     certificate_pem: str = Field(..., min_length=1, max_length=200_000)
     private_key_pem: str | None = Field(None, max_length=200_000)
+    organization_id: str | None = None
+    system_id: str | None = None
+    project_id: str | None = None
 
 
 @router.post("/certificate", status_code=201)
@@ -72,6 +75,9 @@ async def import_certificate(
         not_after=not_after,
         fullchain_pem=cert_pem,
         private_key_pem=key_pem,
+        organization_id=payload.organization_id,
+        system_id=payload.system_id,
+        project_id=payload.project_id,
     )
     acme_store.save_certificate(cert)
     audit_log.record(

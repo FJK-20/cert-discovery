@@ -54,6 +54,9 @@ class RenewRequest(BaseModel):
     environment: AcmeEnvironment = AcmeEnvironment.STAGING
     dns_mode: DnsMode = DnsMode.MANUAL
     ca: CertificateAuthority = CertificateAuthority.LETS_ENCRYPT
+    organization_id: str | None = None
+    system_id: str | None = None
+    project_id: str | None = None
 
 
 def _client_key(request: Request) -> str:
@@ -74,6 +77,9 @@ def _job_snapshot(job: AcmeJob) -> dict:
         "dns_record_type": job.dns_record_type,
         "dns_record_name": job.dns_record_name,
         "dns_record_value": job.dns_record_value,
+        "organization_id": job.organization_id,
+        "system_id": job.system_id,
+        "project_id": job.project_id,
     }
 
 
@@ -187,7 +193,15 @@ async def renew(
     if not domain or "/" in domain or " " in domain:
         raise HTTPException(status_code=400, detail="Domínio inválido.")
 
-    job = await renewal_manager.create(domain, payload.environment, payload.dns_mode, payload.ca)
+    job = await renewal_manager.create(
+        domain,
+        payload.environment,
+        payload.dns_mode,
+        payload.ca,
+        organization_id=payload.organization_id,
+        system_id=payload.system_id,
+        project_id=payload.project_id,
+    )
     detail = f"{domain} ({payload.environment.value}, {payload.dns_mode.value}, {payload.ca.value})"
     audit_log.record(username=username, action="certificate_renew_requested", detail=detail)
     return {"job_id": job.id}
@@ -253,6 +267,9 @@ async def list_certificates() -> list[dict]:
             "dns_mode": c.dns_mode,
             "ca": c.ca,
             "has_private_key": c.private_key_pem is not None,
+            "organization_id": c.organization_id,
+            "system_id": c.system_id,
+            "project_id": c.project_id,
         }
         for c in acme_store.list_certificates()
     ]

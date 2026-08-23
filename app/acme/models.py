@@ -66,3 +66,8 @@ class AcmeJob:
     dns_record_type: str = "TXT"
     dns_record_name: str | None = None
     dns_record_value: str | None = None
+    # Contexto opcional (Fase 8) — ver app/acme/store.py, mesmo campo em
+    # IssuedCertificate; só carregado até lá quando o job termina.
+    organization_id: str | None = None
+    system_id: str | None = None
+    project_id: str | None = None

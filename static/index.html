@@ -31,6 +31,8 @@
       <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6.5"/><line x1="15" y1="15" x2="20" y2="20"/></symbol>
       <symbol id="icon-sliders" viewBox="0 0 24 24"><line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="1.8" fill="currentColor" stroke="none"/><line x1="4" y1="13" x2="20" y2="13"/><circle cx="16" cy="13" r="1.8" fill="currentColor" stroke="none"/><line x1="4" y1="19" x2="20" y2="19"/><circle cx="11" cy="19" r="1.8" fill="currentColor" stroke="none"/></symbol>
       <symbol id="icon-menu" viewBox="0 0 24 24"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></symbol>
+      <symbol id="icon-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
     </defs>
   </svg>
 
@@ -56,6 +58,10 @@
         <a href="#renovacao" data-screen="renovacao">
           <svg class="icon"><use href="#icon-refresh"/></svg>
           <span>Renovação</span>
+        </a>
+        <a href="#cadastros" data-screen="cadastros">
+          <svg class="icon"><use href="#icon-database"/></svg>
+          <span>Cadastros</span>
         </a>
         <a href="#configuracoes" data-screen="configuracoes">
           <svg class="icon"><use href="#icon-sliders"/></svg>
@@ -362,6 +368,21 @@
           <option value="azure_dns">Automático via Azure DNS (precisa de service principal na zona do domínio emitido)</option>
         </select>
 
+        <label for="acme-organization">Organização (opcional)</label>
+        <select id="acme-organization">
+          <option value="">Nenhuma</option>
+        </select>
+
+        <label for="acme-system">Sistema (opcional)</label>
+        <select id="acme-system">
+          <option value="">Nenhum</option>
+        </select>
+
+        <label for="acme-project">Projeto (opcional)</label>
+        <select id="acme-project">
+          <option value="">Nenhum</option>
+        </select>
+
         <label class="consent">
           <input id="acme-consent" type="checkbox" required />
           Confirmo que sou autorizado a emitir certificados para este domínio.
@@ -417,6 +438,22 @@
           placeholder="app.exemplo.com.br&#10;www.exemplo.com.br"
           required
         ></textarea>
+
+        <label for="csr-organization">Organização (opcional)</label>
+        <select id="csr-organization">
+          <option value="">Nenhuma</option>
+        </select>
+
+        <label for="csr-system">Sistema (opcional)</label>
+        <select id="csr-system">
+          <option value="">Nenhum</option>
+        </select>
+
+        <label for="csr-project">Projeto (opcional)</label>
+        <select id="csr-project">
+          <option value="">Nenhum</option>
+        </select>
+
         <button type="submit">Gerar CSR</button>
       </form>
 
@@ -454,6 +491,21 @@
 
         <label for="import-cert-file">Ou envie um arquivo (.pem/.crt) em vez de colar</label>
         <input id="import-cert-file" type="file" accept=".pem,.crt,.cer,.txt" />
+
+        <label for="import-organization">Organização (opcional)</label>
+        <select id="import-organization">
+          <option value="">Nenhuma</option>
+        </select>
+
+        <label for="import-system">Sistema (opcional)</label>
+        <select id="import-system">
+          <option value="">Nenhum</option>
+        </select>
+
+        <label for="import-project">Projeto (opcional)</label>
+        <select id="import-project">
+          <option value="">Nenhum</option>
+        </select>
 
         <button type="submit">Importar</button>
       </form>
@@ -509,6 +561,156 @@
         </table>
       </div>
       <p id="renewal-history-empty" class="hint hidden">Nenhuma tentativa de renovação ainda.</p>
+    </section>
+    </div>
+
+    <div id="screen-cadastros" class="screen hidden">
+    <section class="card" data-requires-role="admin,auditor">
+      <h2><svg class="icon"><use href="#icon-database"/></svg> Organizações</h2>
+      <p class="hint">
+        Dono organizacional de um certificado — quem opera pode escolher
+        uma organização já cadastrada aqui na hora de emitir/importar, mas
+        só admin cadastra/edita/remove.
+      </p>
+      <div class="table-wrapper">
+        <table id="orgs-table">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Unidade</th>
+              <th>Cidade/UF</th>
+              <th>Categoria</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="orgs-body"></tbody>
+        </table>
+      </div>
+      <p id="orgs-empty" class="hint hidden">Nenhuma organização cadastrada ainda.</p>
+      <details id="org-form-details" data-requires-role="admin">
+        <summary>Adicionar organização</summary>
+        <form id="org-form">
+          <input type="hidden" id="org-form-id" value="" />
+          <label for="org-name">Nome</label>
+          <input id="org-name" type="text" required />
+
+          <label for="org-unit">Unidade organizacional (opcional)</label>
+          <input id="org-unit" type="text" />
+
+          <label for="org-city">Cidade (opcional)</label>
+          <input id="org-city" type="text" />
+
+          <label for="org-state">Estado (opcional)</label>
+          <input id="org-state" type="text" />
+
+          <label for="org-country">País (opcional)</label>
+          <input id="org-country" type="text" />
+
+          <label for="org-phone">Telefone (opcional)</label>
+          <input id="org-phone" type="text" />
+
+          <label for="org-category">Categoria (opcional)</label>
+          <input id="org-category" type="text" placeholder="Privada, pública, ONG..." />
+
+          <label for="org-status">Status</label>
+          <select id="org-status">
+            <option value="active" selected>Ativo</option>
+            <option value="inactive">Inativo</option>
+          </select>
+
+          <button type="submit" id="org-form-submit">Criar organização</button>
+          <button type="button" id="org-form-cancel" class="button-link hidden">Cancelar edição</button>
+        </form>
+      </details>
+      <div id="orgs-error" class="hidden error-banner"></div>
+    </section>
+
+    <section class="card" data-requires-role="admin,auditor">
+      <h2><svg class="icon"><use href="#icon-database"/></svg> Sistemas</h2>
+      <p class="hint">
+        Sistema/aplicação que usa o certificado (ex: CRM, um serviço
+        interno) — mesma ideia de Organizações, cadastro simples de
+        nome + descrição.
+      </p>
+      <div class="table-wrapper">
+        <table id="systems-table">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Descrição</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="systems-body"></tbody>
+        </table>
+      </div>
+      <p id="systems-empty" class="hint hidden">Nenhum sistema cadastrado ainda.</p>
+      <details id="system-form-details" data-requires-role="admin">
+        <summary>Adicionar sistema</summary>
+        <form id="system-form" class="catalog-form">
+          <input type="hidden" id="system-form-id" value="" />
+          <label for="system-name">Nome</label>
+          <input id="system-name" type="text" required />
+
+          <label for="system-description">Descrição (opcional)</label>
+          <textarea id="system-description" rows="2"></textarea>
+
+          <label for="system-status">Status</label>
+          <select id="system-status">
+            <option value="active" selected>Ativo</option>
+            <option value="inactive">Inativo</option>
+          </select>
+
+          <button type="submit" id="system-form-submit">Criar sistema</button>
+          <button type="button" id="system-form-cancel" class="button-link hidden">Cancelar edição</button>
+        </form>
+      </details>
+      <div id="systems-error" class="hidden error-banner"></div>
+    </section>
+
+    <section class="card" data-requires-role="admin,auditor">
+      <h2><svg class="icon"><use href="#icon-database"/></svg> Projetos</h2>
+      <p class="hint">
+        Projeto responsável pelo certificado (ex: uma migração, uma
+        iniciativa com prazo) — mesmo formato de Sistemas.
+      </p>
+      <div class="table-wrapper">
+        <table id="projects-table">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Descrição</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="projects-body"></tbody>
+        </table>
+      </div>
+      <p id="projects-empty" class="hint hidden">Nenhum projeto cadastrado ainda.</p>
+      <details id="project-form-details" data-requires-role="admin">
+        <summary>Adicionar projeto</summary>
+        <form id="project-form" class="catalog-form">
+          <input type="hidden" id="project-form-id" value="" />
+          <label for="project-name">Nome</label>
+          <input id="project-name" type="text" required />
+
+          <label for="project-description">Descrição (opcional)</label>
+          <textarea id="project-description" rows="2"></textarea>
+
+          <label for="project-status">Status</label>
+          <select id="project-status">
+            <option value="active" selected>Ativo</option>
+            <option value="inactive">Inativo</option>
+          </select>
+
+          <button type="submit" id="project-form-submit">Criar projeto</button>
+          <button type="button" id="project-form-cancel" class="button-link hidden">Cancelar edição</button>
+        </form>
+      </details>
+      <div id="projects-error" class="hidden error-banner"></div>
     </section>
     </div>
 

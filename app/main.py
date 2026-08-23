@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.acme.scheduler import scheduler
 from app.api.routes_acme import router as acme_router
 from app.api.routes_audit import router as audit_router
+from app.api.routes_catalog import router as catalog_router
 from app.api.routes_csr import router as csr_router
 from app.api.routes_import import router as import_router
 from app.api.routes_notify import router as notify_router
@@ -54,6 +55,7 @@ app.include_router(csr_router)
 app.include_router(import_router)
 app.include_router(notify_router)
 app.include_router(audit_router)
+app.include_router(catalog_router)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 

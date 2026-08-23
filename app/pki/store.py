@@ -28,6 +28,11 @@ class PendingCsr:
     csr_pem: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    # Contexto opcional (Fase 8) — capturado na criação do CSR (quando a
+    # pessoa sabe pra que é), carregado até a conclusão em IssuedCertificate.
+    organization_id: str | None = None
+    system_id: str | None = None
+    project_id: str | None = None
 
 
 class PendingCsrStore:

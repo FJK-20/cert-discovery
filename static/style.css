@@ -481,10 +481,23 @@ button:disabled {
   }
 }
 
+/* Reseta as propriedades de <button> (background/border/padding/
+   border-radius/font) — .button-link é usada tanto em <a> quanto em
+   <button> (user-delete-btn, api-key-revoke-btn, os botões de
+   editar/remover de Cadastros), e sem esse reset o <button> base
+   (fundo sólido na cor da marca) vazava por baixo, deixando o texto
+   azul sobre fundo azul — invisível. Achado assim: os botões de
+   editar/remover de Organizações renderizaram como blocos sólidos sem
+   texto nenhum visível numa verificação ao vivo. */
 .button-link {
   color: var(--brand);
   text-decoration: none;
   font-weight: 600;
+  background: none;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
 }
 
 .button-link:hover {

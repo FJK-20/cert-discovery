@@ -71,9 +71,20 @@ class AcmeRenewalManager:
         ca: CertificateAuthority = CertificateAuthority.LETS_ENCRYPT,
         *,
         trigger: str = "manual",
+        organization_id: str | None = None,
+        system_id: str | None = None,
+        project_id: str | None = None,
     ) -> AcmeJob:
         self._evict_expired()
-        job = AcmeJob(domain=domain, environment=environment, dns_mode=dns_mode, ca=ca)
+        job = AcmeJob(
+            domain=domain,
+            environment=environment,
+            dns_mode=dns_mode,
+            ca=ca,
+            organization_id=organization_id,
+            system_id=system_id,
+            project_id=project_id,
+        )
         self._jobs[job.id] = job
         if dns_mode in _EVENT_BASED_MODES:
             self._confirm_events[job.id] = threading.Event()
@@ -186,6 +197,9 @@ class AcmeRenewalManager:
             private_key_pem=result.private_key_pem,
             dns_mode=job.dns_mode.value,
             ca=job.ca.value,
+            organization_id=job.organization_id,
+            system_id=job.system_id,
+            project_id=job.project_id,
         )
         self._store.save_certificate(cert)
         job.certificate_id = cert.id

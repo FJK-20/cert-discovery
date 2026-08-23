@@ -25,6 +25,9 @@ _rate_limiter = SlidingWindowRateLimiter(max_requests=10, window_seconds=300)
 
 class CreateCsrRequest(BaseModel):
     domains: list[str] = Field(..., min_length=1, max_length=100)
+    organization_id: str | None = None
+    system_id: str | None = None
+    project_id: str | None = None
 
 
 class CompleteCsrRequest(BaseModel):
@@ -56,6 +59,9 @@ def _snapshot(pending: PendingCsr) -> dict:
         "domains": pending.domains,
         "csr_pem": pending.csr_pem,
         "created_at": pending.created_at,
+        "organization_id": pending.organization_id,
+        "system_id": pending.system_id,
+        "project_id": pending.project_id,
     }
 
 
@@ -75,6 +81,9 @@ async def create_csr(
         domains=domains,
         private_key_pem=pki_keys.serialize_private_key(key),
         csr_pem=csr_pem,
+        organization_id=payload.organization_id,
+        system_id=payload.system_id,
+        project_id=payload.project_id,
     )
     pending_csr_store.save(pending)
     audit_log.record(username=username, action="csr_created", detail=", ".join(domains))
@@ -129,6 +138,9 @@ async def complete_csr(
         not_after=not_after,
         fullchain_pem=cert_pem,
         private_key_pem=pending.private_key_pem,
+        organization_id=pending.organization_id,
+        system_id=pending.system_id,
+        project_id=pending.project_id,
     )
     acme_store.save_certificate(cert)
     pending_csr_store.delete(csr_id)

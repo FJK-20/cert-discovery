@@ -93,6 +93,12 @@ class IssuedCertificate:
     # bookkeeping/exibição — qualquer CA funciona com qualquer dns_mode,
     # não afeta a lógica de renovação.
     ca: str | None = None
+    # Contexto opcional (Fase 8) — referencia por id os cadastros de
+    # app/catalog/store.py. Só bookkeeping/exibição/filtro, igual ca/
+    # dns_mode acima: nenhum deles afeta a lógica de emissão ou renovação.
+    organization_id: str | None = None
+    system_id: str | None = None
+    project_id: str | None = None
 
 
 def _write_json(path: Path, data: dict) -> None:

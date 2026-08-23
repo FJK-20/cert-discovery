@@ -326,6 +326,37 @@ de Emissão.
   janela de renovação (regra de negócio 02), que depende da validade total
   real, não de quando o certificado chegou nesta aplicação.
 
+## Cadastros (Organizações, Sistemas, Projetos)
+
+CRUD completo pra três dimensões de contexto — quem opera pode associar
+um certificado (na emissão via ACME, no CSR manual ou na importação) a
+uma organização, um sistema e/ou um projeto já cadastrados. Tela
+Cadastros, visível pra admin e auditor; criar/editar/remover é
+admin-only, mesma régua de qualquer outra configuração do sistema.
+
+- **Organizações** têm campos próprios: unidade organizacional, cidade,
+  estado, país, telefone, categoria — além de nome e status
+  (ativo/inativo).
+- **Sistemas** e **Projetos** são estruturalmente idênticos (nome,
+  descrição, status) — no cenário que motivou esse cadastro, os dois já
+  eram listas nomeadas simples, sem campos próprios adicionais.
+- Editar reaproveita o mesmo formulário de criar (o botão "editar" numa
+  linha da tabela pré-popula os campos e troca o formulário pra modo de
+  atualização) — não existem dois formulários redundantes.
+- Só entidades com status **ativo** aparecem nos seletores de
+  Emissão/CSR/Importação — inativar em vez de remover é o jeito de
+  parar de oferecer uma organização/sistema/projeto sem apagar o
+  histórico de certificados que já a referenciam.
+- Cada criação/edição/remoção fica no log de auditoria, mesmo padrão de
+  qualquer outra ação administrativa.
+
+Deliberadamente **não** replica tudo que um produto de gerenciamento de
+certificado corporativo real oferece nessas dimensões (múltiplos
+contatos por organização, um assistente de várias etapas, campos fiscais
+completos) — o objetivo aqui é o cadastro de verdade (criar, listar,
+editar, remover, persistente, sob RBAC), não recriar cada campo de um
+produto usado por um departamento de TI inteiro.
+
 ## Renovação automática e notificações
 
 Um verificador roda em segundo plano (padrão a cada 6h, configurável) e
@@ -591,33 +622,28 @@ específicas):
 partir de uma comparação direta com uma instância real em produção, não
 a página de marketing):
 
-- **Fila de requisições com contexto** — campos opcionais de ambiente
-  (dev/homolog/produção) e sistema/projeto (texto livre) na
-  emissão/importação, sem virar um cadastro novo nem um fluxo de
-  aprovação em várias etapas — só contexto pra filtrar/organizar depois.
+- **Fila de requisições com contexto — feito.** Cadastro completo de
+  Organizações/Sistemas/Projetos (ver seção acima), referenciados
+  opcionalmente na emissão/CSR/importação. Escopo revisado depois do
+  pedido explícito do usuário — inicialmente planejado como campos livres
+  sem cadastro próprio, evoluído pra CRUD completo de verdade (admin-only,
+  com edição, status ativo/inativo, e auditoria) a pedido dele.
 - **Justificativa/motivo no CSR manual** — motivo + número de chamado
   opcionais na conclusão do CSR, registrados no log de auditoria que já
-  existe (não duplica como sistema de aprovação separado).
+  existe (não duplica como sistema de aprovação separado). Ainda não
+  implementado.
 - **Dashboard com mais dimensões** — quebra por CA, ambiente, tamanho e
   algoritmo de chave, além dos gráficos por emissor/prazo que já
-  existem; a maior parte não exige mudança de schema (`ca`/`dns_mode` já
-  existem no registro do certificado).
+  existem. Ainda não implementado.
 - **Radar de risco** — gráfico radar (CA × dias até expirar), mesmo
   princípio dos gráficos de barra já existentes (SVG desenhado à mão,
-  sem lib externa).
+  sem lib externa). Ainda não implementado.
 - **Página dedicada de Autoridades/Integrações** — hoje a configuração de
   CA/DNS fica espalhada em blocos dentro de Emissão; uma tela própria
-  centraliza isso, Emissão passa só a consumir o que já está configurado.
+  centraliza isso. Ainda não implementado.
 - **Página dedicada de Certificados** — separada de Renovação (que fica
   focada em fila/histórico de tentativas): busca, filtro por CA/ambiente/
-  status, sem precisar abrir Renovação pra achar um certificado
-  específico.
-
-Deliberadamente **não** replica as dimensões multi-tenant do produto de
-referência (Organizações/Sistemas/Projetos como cadastros próprios com
-CRUD) — isso serve um departamento de TI gerenciando dezenas de sistemas
-internos; pra uma ferramenta de portfólio de um usuário só, isso seria
-peso sem benefício real.
+  status. Ainda não implementado.
 
 ## Licença
 

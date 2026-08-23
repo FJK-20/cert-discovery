@@ -14,6 +14,7 @@ from app.acme.store import AcmeStore
 from app.audit.log import audit_log
 from app.auth.sessions import TokenStore
 from app.auth.store import UserStore
+from app.core.ratelimit import SlidingWindowRateLimiter
 from app.main import app
 from app.pki import keys as pki_keys
 
@@ -39,12 +40,14 @@ def _self_signed_cert(domains: list[str], key) -> str:
 
 def _client(tmp_path, monkeypatch) -> TestClient:
     session_store = TokenStore(ttl_seconds=3600)
+    unlimited = SlidingWindowRateLimiter(max_requests=1000, window_seconds=300)
     monkeypatch.setattr("app.auth.routes_auth.user_store", UserStore(tmp_path))
     monkeypatch.setattr("app.auth.dependencies.user_store", UserStore(tmp_path))
     monkeypatch.setattr("app.auth.routes_saml.user_store", UserStore(tmp_path))
     monkeypatch.setattr("app.auth.routes_auth.session_store", session_store)
     monkeypatch.setattr("app.auth.routes_auth.pending_login_store", TokenStore(ttl_seconds=300))
     monkeypatch.setattr("app.auth.dependencies.session_store", session_store)
+    monkeypatch.setattr("app.auth.routes_auth._rate_limiter", unlimited)
     store = AcmeStore(tmp_path)
     monkeypatch.setattr("app.api.routes_import.acme_store", store)
     monkeypatch.setattr("app.api.routes_acme.acme_store", store)
