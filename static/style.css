@@ -11,11 +11,11 @@
   --text: #1a2233;
   --muted: #5b6472;
   --border: #e1e5ea;
-  /* Teal em vez do azul genérico de dashboard — verificado por luminância
-     relativa WCAG 2.1 (não estimado): 5.92:1 como texto/botão sobre
-     branco ou --bg, folga confortável acima do mínimo AA de 4.5:1. */
-  --brand: #0f6e7d;
-  --brand-hover: #0b5560;
+  /* Verificado por luminância relativa WCAG 2.1 (não estimado): 6.82:1
+     como texto/botão sobre branco, 6.36:1 sobre --bg — folga confortável
+     acima do mínimo AA de 4.5:1. */
+  --brand: #0052cc;
+  --brand-hover: #003da6;
   --shadow-card: 0 1px 2px rgba(15, 30, 40, 0.04), 0 4px 12px rgba(15, 30, 40, 0.05);
   --ok: #12873d;
   --warning: #b26205;
@@ -27,6 +27,12 @@
   --badge-critical: #cc4d0a;
   --badge-expired: #dc2626;
   --badge-neutral: #6b7280;
+  /* Sidebar tem token próprio em vez de reusar --brand direto: no escuro
+     o --brand vira um azul claro pensado pra texto/ícone sobre fundo
+     escuro, não pra ser o preenchimento inteiro de um painel grande. */
+  --sidebar-bg: var(--brand);
+  --sidebar-text: #ffffff;
+  --sidebar-text-muted: rgba(255, 255, 255, 0.82);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -36,14 +42,21 @@
     --text: #e6e9ef;
     --muted: #9aa4b2;
     --border: #2a3242;
-    /* 7.91:1 sobre --bg/--card-bg — folga bem acima do mínimo AA. */
-    --brand: #4fb8c9;
-    --brand-hover: #78cbd8;
+    /* 6.76:1 sobre --bg, 6.18:1 sobre --card-bg — folga bem acima do
+       mínimo AA. */
+    --brand: #5b9dff;
+    --brand-hover: #82b6ff;
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 14px rgba(0, 0, 0, 0.24);
     --ok: #16a34a;
     --warning: #d97706;
     --critical: #ea580c;
     --expired: #e14747;
+    /* 17.2:1 pro texto branco, 6.3:1 pro azul de destaque — painel escuro
+       dedicado em vez do --brand claro (que é feito pra texto, não pra
+       preencher um painel grande). */
+    --sidebar-bg: #0d1b33;
+    --sidebar-text: #ffffff;
+    --sidebar-text-muted: rgba(255, 255, 255, 0.75);
   }
 }
 
@@ -59,6 +72,13 @@ body {
   line-height: 1.5;
 }
 
+.subtitle {
+  color: var(--muted);
+  margin: 0;
+}
+
+/* index.html não usa mais <header> (virou .sidebar-brand); isso só
+   estiliza o cabeçalho centralizado de auth.html. */
 header {
   padding: 2.5rem 1.5rem 1rem;
   text-align: center;
@@ -69,57 +89,168 @@ header h1 {
   font-size: 1.8rem;
 }
 
-.subtitle {
-  color: var(--muted);
-  margin: 0;
-}
-
-main {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 1rem 1.5rem 3rem;
-}
-
 .screen {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
 }
 
+/* Shell: sidebar fixa + coluna de conteúdo rolável. */
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  z-index: 50;
+  transition: transform 0.25s ease;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 1.3rem 1.2rem;
+  font-weight: 700;
+  font-size: 1.05rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.sidebar-brand .icon {
+  stroke: var(--sidebar-text);
+}
+
 /* Navegação entre telas (Dashboard/Inventário/Emissão/Renovação/
    Configurações) — cada uma roteada pelo hash da URL (ver app.js). */
-.main-nav {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 0 1.5rem;
+.sidebar-nav {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  border-bottom: 1px solid var(--border);
+  flex-direction: column;
+  padding: 0.75rem 0;
 }
 
-.main-nav a {
-  display: inline-flex;
+.sidebar-nav a {
+  display: flex;
   align-items: center;
+  gap: 0.85rem;
   /* min-height 44px: mesma régua de alvo de toque do resto do app. */
   min-height: 44px;
-  padding: 0 0.9rem;
-  color: var(--muted);
+  padding: 0.7rem 1.2rem;
+  color: var(--sidebar-text-muted);
   text-decoration: none;
-  font-weight: 600;
+  font-weight: 500;
   font-size: 0.92rem;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  border-right: 3px solid transparent;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.main-nav a[aria-current="page"] {
-  color: var(--brand);
-  border-bottom-color: var(--brand);
+.sidebar-nav a .icon {
+  stroke: currentColor;
+  flex-shrink: 0;
 }
 
-.main-nav a:hover {
+.sidebar-nav a:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--sidebar-text);
+}
+
+.sidebar-nav a[aria-current="page"] {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--sidebar-text);
+  border-right-color: var(--sidebar-text);
+  font-weight: 600;
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
+.app-content {
+  flex: 1;
+  min-width: 0;
+  margin-left: 260px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-toggle-btn {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
   color: var(--text);
+  border-radius: 8px;
+  min-height: 44px;
+  min-width: 44px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+main {
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.5rem;
+  flex: 1;
+}
+
+@media (max-width: 1024px) {
+  .sidebar {
+    width: 76px;
+  }
+  .sidebar-brand-text,
+  .sidebar-nav a span {
+    display: none;
+  }
+  .sidebar-nav a {
+    justify-content: center;
+    padding: 0.7rem;
+  }
+  .app-content {
+    margin-left: 76px;
+  }
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    width: 260px;
+    transform: translateX(-100%);
+    z-index: 200;
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  .sidebar-brand-text,
+  .sidebar-nav a span {
+    display: inline;
+  }
+  .sidebar-nav a {
+    justify-content: flex-start;
+    padding: 0.7rem 1.2rem;
+  }
+  .app-content {
+    margin-left: 0;
+  }
+  .sidebar-toggle-btn {
+    display: inline-flex;
+  }
+  .sidebar-backdrop.visible {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 150;
+  }
 }
 
 .card {
@@ -508,9 +639,12 @@ footer {
   align-items: center;
   justify-content: flex-end;
   gap: 0.6rem;
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 0.5rem 1.5rem 0;
+  padding: 0.9rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-toggle-btn {
+  margin-right: auto;
 }
 
 .current-user-badge {

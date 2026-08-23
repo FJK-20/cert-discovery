@@ -345,6 +345,7 @@ function showScreen(name) {
     else a.removeAttribute("aria-current");
   });
   if (name === "configuracoes") refreshSecurityStatus();
+  closeSidebar();
 }
 
 function routeFromHash() {
@@ -352,6 +353,28 @@ function routeFromHash() {
 }
 
 window.addEventListener("hashchange", routeFromHash);
+
+// Sidebar em drawer no mobile (≤768px) — no desktop/tablet ela já fica
+// sempre visível (ver breakpoints em style.css), esses controles só têm
+// efeito visual abaixo desse breakpoint.
+const sidebar = document.getElementById("sidebar");
+const sidebarBackdrop = document.getElementById("sidebar-backdrop");
+const sidebarToggleBtn = document.getElementById("sidebar-toggle");
+
+function openSidebar() {
+  sidebar.classList.add("open");
+  sidebarBackdrop.classList.add("visible");
+}
+
+function closeSidebar() {
+  sidebar.classList.remove("open");
+  sidebarBackdrop.classList.remove("visible");
+}
+
+sidebarToggleBtn.addEventListener("click", () => {
+  sidebar.classList.contains("open") ? closeSidebar() : openSidebar();
+});
+sidebarBackdrop.addEventListener("click", closeSidebar);
 // A chamada inicial fica no fim do arquivo (não aqui) — se a página
 // carregar direto em #configuracoes, showScreen() chama
 // refreshSecurityStatus(), que usa consts definidas mais abaixo.
