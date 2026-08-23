@@ -335,6 +335,7 @@ const SCREEN_NAMES = [
   "emissao",
   "renovacao",
   "cadastros",
+  "autoridades",
   "configuracoes",
 ];
 const screenSections = Object.fromEntries(
@@ -501,18 +502,15 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
 // opcional pra quem quer automação total — ver "A decisão de arquitetura"
 // no roadmap.
 const acmeDnsMode = document.getElementById("acme-dns-mode");
-const acmeCloudflareConfig = document.getElementById("acme-cloudflare-config");
 const acmeDnsStatus = document.getElementById("acme-dns-status");
 const acmeDnsFormDetails = document.getElementById("acme-dns-form-details");
 const acmeDnsForm = document.getElementById("acme-dns-form");
 const acmeCa = document.getElementById("acme-ca");
 const acmeEnvironment = document.getElementById("acme-environment");
 const acmeEnvironmentHint = document.getElementById("acme-environment-hint");
-const acmeZerosslConfig = document.getElementById("acme-zerossl-config");
 const acmeZerosslStatus = document.getElementById("acme-zerossl-status");
 const acmeZerosslFormDetails = document.getElementById("acme-zerossl-form-details");
 const acmeZerosslForm = document.getElementById("acme-zerossl-form");
-const acmeAzureConfig = document.getElementById("acme-azure-config");
 const acmeAzureStatus = document.getElementById("acme-azure-status");
 const acmeAzureFormDetails = document.getElementById("acme-azure-form-details");
 const acmeAzureForm = document.getElementById("acme-azure-form");
@@ -538,21 +536,14 @@ const acmeCertsList = document.getElementById("acme-certs-list");
 const ACME_TERMINAL_STATES = new Set(["done", "failed"]);
 let currentAcmeJobId = null;
 
-// Cloudflare e delegação CNAME compartilham a mesma credencial (a
-// delegação usa o token pra publicar TXT na zona de delegação, não na
-// zona do domínio emitido) — os dois precisam do painel de configuração.
-acmeDnsMode.addEventListener("change", () => {
-  const needsCloudflare = acmeDnsMode.value === "cloudflare" || acmeDnsMode.value === "cname_delegation";
-  acmeCloudflareConfig.classList.toggle("hidden", !needsCloudflare);
-  acmeAzureConfig.classList.toggle("hidden", acmeDnsMode.value !== "azure_dns");
-});
-
 // ZeroSSL não tem staging separado — todo certificado emitido por ela sai
 // real, mesmo com "Staging" selecionado (o campo Ambiente vira só
-// bookkeeping/exibição nesse caso, não afeta rate limit real).
+// bookkeeping/exibição nesse caso, não afeta rate limit real). Os
+// painéis de configurar credencial (Cloudflare/ZeroSSL/Azure DNS) moraram
+// aqui antes; agora vivem na tela Autoridades (Fase 8), não precisam
+// mais aparecer/sumir junto com o modo escolhido aqui.
 acmeCa.addEventListener("change", () => {
   const isZerossl = acmeCa.value === "zerossl";
-  acmeZerosslConfig.classList.toggle("hidden", !isZerossl);
   acmeEnvironmentHint.textContent = isZerossl
     ? "ZeroSSL não tem ambiente de teste separado — o certificado sai real independente da opção acima."
     : "";

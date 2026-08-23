@@ -63,6 +63,10 @@
           <svg class="icon"><use href="#icon-database"/></svg>
           <span>Cadastros</span>
         </a>
+        <a href="#autoridades" data-screen="autoridades">
+          <svg class="icon"><use href="#icon-shield-key"/></svg>
+          <span>Autoridades</span>
+        </a>
         <a href="#configuracoes" data-screen="configuracoes">
           <svg class="icon"><use href="#icon-sliders"/></svg>
           <span>Configurações</span>
@@ -237,105 +241,13 @@
         credencial nenhuma — automação via API é opcional.
       </p>
 
-      <!-- Fica FORA de #acme-renew-form logo abaixo: HTML não permite
-           <form> aninhado, e o token da Cloudflare é salvo numa ação
-           própria (botão e POST separados), não faz parte do submit de
-           emissão — precisa ser irmão, não filho. -->
-      <div id="acme-cloudflare-config" class="hidden">
-        <div id="acme-dns-status" class="hint"></div>
-        <details id="acme-dns-form-details" data-requires-role="admin">
-          <summary>Configurar / atualizar token da Cloudflare</summary>
-          <form id="acme-dns-form">
-            <label for="cloudflare-token">Token de API da Cloudflare</label>
-            <input
-              id="cloudflare-token"
-              type="password"
-              autocomplete="off"
-              placeholder="token com permissão Zone:DNS:Edit"
-              required
-            />
-            <label for="cloudflare-delegation-zone">
-              Domínio de delegação (opcional — só pro modo "Delegação CNAME")
-            </label>
-            <input
-              id="cloudflare-delegation-zone"
-              type="text"
-              autocomplete="off"
-              placeholder="delegate.seudominio.com.br (zona que esse token controla)"
-            />
-            <p class="hint">
-              Deixe em branco se só for usar o modo automático direto. Pra
-              delegação CNAME, informe um domínio/subdomínio que esse token
-              controla — é onde os desafios de qualquer domínio delegado vão
-              ser publicados.
-            </p>
-            <button type="submit">Salvar e validar token</button>
-          </form>
-        </details>
-      </div>
-
-      <!-- Mesmo motivo do bloco da Cloudflare acima: fora de
-           #acme-renew-form, HTML não permite <form> aninhado. -->
-      <div id="acme-zerossl-config" class="hidden">
-        <div id="acme-zerossl-status" class="hint"></div>
-        <details id="acme-zerossl-form-details" data-requires-role="admin">
-          <summary>Configurar credenciais EAB da ZeroSSL</summary>
-          <form id="acme-zerossl-form">
-            <label for="zerossl-eab-kid">EAB KID</label>
-            <input id="zerossl-eab-kid" type="text" autocomplete="off" required />
-
-            <label for="zerossl-eab-hmac">EAB HMAC Key</label>
-            <input id="zerossl-eab-hmac" type="password" autocomplete="off" required />
-
-            <p class="hint">
-              Pegue os dois valores no painel da ZeroSSL: Developer → "EAB
-              Credentials for ACME Clients". Sem isso, a ZeroSSL rejeita o
-              registro da conta ACME.
-            </p>
-            <button type="submit">Salvar credenciais</button>
-          </form>
-        </details>
-      </div>
-
-      <!-- Mesmo motivo dos blocos acima: fora de #acme-renew-form. -->
-      <div id="acme-azure-config" class="hidden">
-        <div id="acme-azure-status" class="hint"></div>
-        <details id="acme-azure-form-details" data-requires-role="admin">
-          <summary>Configurar service principal do Azure DNS</summary>
-          <form id="acme-azure-form">
-            <label for="azure-tenant-id">Tenant ID</label>
-            <input id="azure-tenant-id" type="text" autocomplete="off" required />
-
-            <label for="azure-client-id">Client ID (Application ID)</label>
-            <input id="azure-client-id" type="text" autocomplete="off" required />
-
-            <label for="azure-client-secret">Client Secret</label>
-            <input id="azure-client-secret" type="password" autocomplete="off" required />
-
-            <label for="azure-subscription-id">Subscription ID</label>
-            <input id="azure-subscription-id" type="text" autocomplete="off" required />
-
-            <label for="azure-resource-group">Resource Group</label>
-            <input id="azure-resource-group" type="text" autocomplete="off" required />
-
-            <label for="azure-zone-name">Zona DNS (domínio)</label>
-            <input
-              id="azure-zone-name"
-              type="text"
-              autocomplete="off"
-              placeholder="seudominio.com.br"
-              required
-            />
-
-            <p class="hint">
-              O service principal precisa do papel "DNS Zone Contributor"
-              escopado só a essa zona (não à subscription inteira) — ver
-              Access control (IAM) da zona no portal do Azure.
-            </p>
-            <button type="submit">Salvar e validar</button>
-          </form>
-        </details>
-      </div>
+      <!-- Os blocos de configurar Cloudflare/ZeroSSL/Azure DNS moram na
+           tela Autoridades agora (Fase 8) — aqui só o formulário de
+           emissão em si, que consome o que já estiver configurado lá. -->
+      <p class="hint">
+        Precisa de credencial pro modo escolhido abaixo? Configure em
+        <a class="button-link" href="#autoridades">Autoridades</a>.
+      </p>
 
       <form id="acme-renew-form" data-requires-role="admin,operador">
         <label for="acme-domain">Domínio a emitir/renovar</label>
@@ -711,6 +623,114 @@
         </form>
       </details>
       <div id="projects-error" class="hidden error-banner"></div>
+    </section>
+    </div>
+
+    <div id="screen-autoridades" class="screen hidden">
+    <section class="card">
+      <h2><svg class="icon"><use href="#icon-shield-key"/></svg> Autoridades e integrações</h2>
+      <p class="hint">
+        Credenciais de CA e provedor de DNS usadas na emissão automática
+        (tela <a class="button-link" href="#emissao">Emissão</a>) —
+        centralizadas aqui em vez de espalhadas pelo formulário de emitir.
+        Configurar é admin-only; qualquer sessão vê o status.
+      </p>
+    </section>
+
+    <section class="card">
+      <h3>Cloudflare (DNS automático / delegação CNAME)</h3>
+      <div id="acme-dns-status" class="hint"></div>
+      <details id="acme-dns-form-details" data-requires-role="admin">
+        <summary>Configurar / atualizar token da Cloudflare</summary>
+        <form id="acme-dns-form">
+          <label for="cloudflare-token">Token de API da Cloudflare</label>
+          <input
+            id="cloudflare-token"
+            type="password"
+            autocomplete="off"
+            placeholder="token com permissão Zone:DNS:Edit"
+            required
+          />
+          <label for="cloudflare-delegation-zone">
+            Domínio de delegação (opcional — só pro modo "Delegação CNAME")
+          </label>
+          <input
+            id="cloudflare-delegation-zone"
+            type="text"
+            autocomplete="off"
+            placeholder="delegate.seudominio.com.br (zona que esse token controla)"
+          />
+          <p class="hint">
+            Deixe em branco se só for usar o modo automático direto. Pra
+            delegação CNAME, informe um domínio/subdomínio que esse token
+            controla — é onde os desafios de qualquer domínio delegado vão
+            ser publicados.
+          </p>
+          <button type="submit">Salvar e validar token</button>
+        </form>
+      </details>
+    </section>
+
+    <section class="card">
+      <h3>ZeroSSL (CA alternativa via ACME)</h3>
+      <div id="acme-zerossl-status" class="hint"></div>
+      <details id="acme-zerossl-form-details" data-requires-role="admin">
+        <summary>Configurar credenciais EAB da ZeroSSL</summary>
+        <form id="acme-zerossl-form">
+          <label for="zerossl-eab-kid">EAB KID</label>
+          <input id="zerossl-eab-kid" type="text" autocomplete="off" required />
+
+          <label for="zerossl-eab-hmac">EAB HMAC Key</label>
+          <input id="zerossl-eab-hmac" type="password" autocomplete="off" required />
+
+          <p class="hint">
+            Pegue os dois valores no painel da ZeroSSL: Developer → "EAB
+            Credentials for ACME Clients". Sem isso, a ZeroSSL rejeita o
+            registro da conta ACME.
+          </p>
+          <button type="submit">Salvar credenciais</button>
+        </form>
+      </details>
+    </section>
+
+    <section class="card">
+      <h3>Azure DNS (DNS automático)</h3>
+      <div id="acme-azure-status" class="hint"></div>
+      <details id="acme-azure-form-details" data-requires-role="admin">
+        <summary>Configurar service principal do Azure DNS</summary>
+        <form id="acme-azure-form">
+          <label for="azure-tenant-id">Tenant ID</label>
+          <input id="azure-tenant-id" type="text" autocomplete="off" required />
+
+          <label for="azure-client-id">Client ID (Application ID)</label>
+          <input id="azure-client-id" type="text" autocomplete="off" required />
+
+          <label for="azure-client-secret">Client Secret</label>
+          <input id="azure-client-secret" type="password" autocomplete="off" required />
+
+          <label for="azure-subscription-id">Subscription ID</label>
+          <input id="azure-subscription-id" type="text" autocomplete="off" required />
+
+          <label for="azure-resource-group">Resource Group</label>
+          <input id="azure-resource-group" type="text" autocomplete="off" required />
+
+          <label for="azure-zone-name">Zona DNS (domínio)</label>
+          <input
+            id="azure-zone-name"
+            type="text"
+            autocomplete="off"
+            placeholder="seudominio.com.br"
+            required
+          />
+
+          <p class="hint">
+            O service principal precisa do papel "DNS Zone Contributor"
+            escopado só a essa zona (não à subscription inteira) — ver
+            Access control (IAM) da zona no portal do Azure.
+          </p>
+          <button type="submit">Salvar e validar</button>
+        </form>
+      </details>
     </section>
     </div>
 
