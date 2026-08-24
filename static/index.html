@@ -506,6 +506,35 @@
     </section>
     </div>
 
+    <div id="cert-detail-modal" class="modal-overlay hidden">
+      <div class="modal-card" role="dialog" aria-modal="true">
+        <button type="button" id="cert-detail-modal-close" class="modal-close" aria-label="Fechar">&times;</button>
+        <h2 id="cert-detail-domain"></h2>
+        <p id="cert-detail-sans" class="hint"></p>
+        <dl class="detail-grid">
+          <dt>Status</dt><dd id="cert-detail-status"></dd>
+          <dt>Autoridade certificadora</dt><dd id="cert-detail-ca"></dd>
+          <dt>Emissor (do certificado)</dt><dd id="cert-detail-issuer"></dd>
+          <dt>Ambiente</dt><dd id="cert-detail-environment"></dd>
+          <dt>Modo de renovação</dt><dd id="cert-detail-mode"></dd>
+          <dt>Chave privada</dt><dd id="cert-detail-privkey"></dd>
+          <dt>Algoritmo/tamanho de chave</dt><dd id="cert-detail-key"></dd>
+          <dt>Emitido em</dt><dd id="cert-detail-issued"></dd>
+          <dt>Válido até</dt><dd id="cert-detail-not-after"></dd>
+          <dt>Dias restantes</dt><dd id="cert-detail-days"></dd>
+          <dt>Organização</dt><dd id="cert-detail-org"></dd>
+          <dt>Sistema</dt><dd id="cert-detail-system"></dd>
+          <dt>Projeto</dt><dd id="cert-detail-project"></dd>
+          <dt>Número de série</dt><dd id="cert-detail-serial"></dd>
+          <dt>Fingerprint SHA-256</dt><dd id="cert-detail-fingerprint" class="mono"></dd>
+        </dl>
+        <div class="modal-actions">
+          <a id="cert-detail-download-cert" class="button-link">Baixar certificado</a>
+          <a id="cert-detail-download-key" class="button-link" data-requires-role="admin,operador">Baixar chave privada</a>
+        </div>
+      </div>
+    </div>
+
     <div id="screen-renovacao" class="screen hidden">
     <section class="card">
       <h2><svg class="icon"><use href="#icon-refresh"/></svg> Renovação</h2>

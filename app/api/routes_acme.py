@@ -4,7 +4,9 @@ import asyncio
 import json
 
 from cryptography import x509
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.x509.oid import NameOID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -257,26 +259,65 @@ async def renewal_history_list(limit: int = 30) -> list[dict]:
     return renewal_history.recent(min(max(limit, 1), 100))
 
 
-def _key_info(fullchain_pem: str) -> tuple[str | None, int | None]:
-    # Derivado do PEM na hora da listagem em vez de guardado no
-    # IssuedCertificate — é um dado que já vive dentro do certificado, não
-    # precisa de mais um campo pra manter sincronizado.
+def _cert_details(fullchain_pem: str) -> dict:
+    # Tudo aqui é derivado do PEM na hora da listagem, não guardado no
+    # IssuedCertificate — já vive dentro do certificado, não precisa de
+    # mais campo pra manter sincronizado. Um parse só serve chave,
+    # subject/SANs, serial e fingerprint (a tela de detalhe pede tudo
+    # isso, mesmo vocabulário que o detalhe do Inventário já usa pros
+    # certificados descobertos).
+    empty = {
+        "key_algorithm": None,
+        "key_size": None,
+        "subject_cn": None,
+        "issuer_cn": None,
+        "sans": [],
+        "serial_number": None,
+        "sha256_fingerprint": None,
+    }
     try:
-        public_key = x509.load_pem_x509_certificate(fullchain_pem.encode()).public_key()
+        cert = x509.load_pem_x509_certificate(fullchain_pem.encode())
     except ValueError:
-        return None, None
+        return empty
+
+    public_key = cert.public_key()
     if isinstance(public_key, rsa.RSAPublicKey):
-        return "RSA", public_key.key_size
-    if isinstance(public_key, ec.EllipticCurvePublicKey):
-        return "EC", public_key.key_size
-    return None, None
+        key_algorithm, key_size = "RSA", public_key.key_size
+    elif isinstance(public_key, ec.EllipticCurvePublicKey):
+        key_algorithm, key_size = "EC", public_key.key_size
+    else:
+        key_algorithm, key_size = None, None
+
+    try:
+        subject_cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+    except IndexError:
+        subject_cn = None
+    try:
+        issuer_cn = cert.issuer.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+    except IndexError:
+        issuer_cn = cert.issuer.rfc4514_string()
+    try:
+        sans = cert.extensions.get_extension_for_class(
+            x509.SubjectAlternativeName
+        ).value.get_values_for_type(x509.DNSName)
+    except x509.ExtensionNotFound:
+        sans = []
+
+    return {
+        "key_algorithm": key_algorithm,
+        "key_size": key_size,
+        "subject_cn": subject_cn,
+        "issuer_cn": issuer_cn,
+        "sans": list(sans),
+        "serial_number": format(cert.serial_number, "x"),
+        "sha256_fingerprint": cert.fingerprint(hashes.SHA256()).hex(),
+    }
 
 
 @router.get("/certificates")
 async def list_certificates() -> list[dict]:
     result = []
     for c in acme_store.list_certificates():
-        key_algorithm, key_size = _key_info(c.fullchain_pem)
         result.append(
             {
                 "id": c.id,
@@ -290,8 +331,7 @@ async def list_certificates() -> list[dict]:
                 "organization_id": c.organization_id,
                 "system_id": c.system_id,
                 "project_id": c.project_id,
-                "key_algorithm": key_algorithm,
-                "key_size": key_size,
+                **_cert_details(c.fullchain_pem),
             }
         )
     return result

@@ -905,6 +905,19 @@ code.mono {
   word-break: break-all;
 }
 
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.modal-actions .no-private-key {
+  display: none;
+}
+
 #results-table tbody tr {
   cursor: pointer;
 }
@@ -1012,23 +1025,67 @@ code.mono {
   font-size: 0.9rem;
 }
 
-.acme-cert-row {
+/* Cada certificado é um cartão próprio (não uma linha corrida com
+   border-bottom) — separação real em vez de só uma linha fina entre
+   blocos de informação bem diferentes (identidade, CA, chave,
+   contexto). */
+#certs-list.certs-cards {
   display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.cert-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.9rem 1.1rem;
+  background: var(--bg);
+}
+
+.cert-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   flex-wrap: wrap;
+}
+
+.cert-card-domain {
+  display: flex;
   align-items: center;
   gap: 0.6rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.9rem;
+  font-weight: 600;
+  min-width: 0;
 }
 
-.acme-cert-row:last-child {
-  border-bottom: none;
+.cert-card-domain strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.acme-cert-row span {
+.cert-card-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
   color: var(--muted);
 }
+
+.cert-card-facts strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.cert-card-context {
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+}
+
+.badge-valid { background: var(--badge-ok); }
+.badge-expiring { background: var(--badge-warning); }
+.badge-monitored { background: var(--badge-neutral); }
 
 #acme-dns-status {
   margin-bottom: 0.75rem;

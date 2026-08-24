@@ -380,9 +380,9 @@ detailModal.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !detailModal.classList.contains("hidden")) {
-    closeDetailModal();
-  }
+  if (event.key !== "Escape") return;
+  if (!detailModal.classList.contains("hidden")) closeDetailModal();
+  if (!certDetailModal.classList.contains("hidden")) closeCertDetailModal();
 });
 
 // Navegação por telas — cada função vive na sua própria tela (Dashboard /
@@ -707,36 +707,125 @@ function certStatus(cert) {
   return "valid";
 }
 
+const CERT_STATUS_LABELS = {
+  valid: "Válido",
+  expiring: "Expirando",
+  expired: "Expirado",
+  monitored: "Monitorado",
+};
+const CERT_STATUS_GLYPHS = { valid: "✓", expiring: "◆", expired: "✕", monitored: "•" };
+const DNS_MODE_LABELS = {
+  cloudflare: "Cloudflare (automático)",
+  azure_dns: "Azure DNS (automático)",
+  cname_delegation: "Delegação CNAME (automático)",
+  manual: "Manual — TXT (avisa, não renova sozinho)",
+};
+
+// Vocabulário próprio (valid/expiring/expired/monitored), separado do
+// badgeFor() do Inventário (expired/critical/warning/ok/...) — são eixos
+// de status diferentes, forçar um no outro só confundiria os dois.
+function certBadge(status) {
+  const label = CERT_STATUS_LABELS[status] || status;
+  const glyph = CERT_STATUS_GLYPHS[status] || "";
+  return `<span class="badge badge-${status}"><span aria-hidden="true">${glyph}</span> ${label}</span>`;
+}
+
 function renderCertificateRow(cert) {
-  const issuedAt = formatDateTime(cert.issued_at);
   const notAfter = formatDateTime(cert.not_after);
   const renewalNote = AUTO_RENEWABLE_MODES.has(cert.dns_mode)
     ? "renovação automática"
     : "renovação manual";
-  const caLabel = CA_LABELS[cert.ca] || null;
-  const privkeyLink = cert.has_private_key
-    ? `<a class="button-link" data-requires-role="admin,operador" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/privkey.pem">chave privada</a>`
-    : `<span class="hint">só monitorado (sem chave privada)</span>`;
+  const caLabel = CA_LABELS[cert.ca] || "Manual/importado";
   const contextParts = [
     cert.organization_id ? catalogNameCache.organization[cert.organization_id] : null,
     cert.system_id ? catalogNameCache.system[cert.system_id] : null,
     cert.project_id ? catalogNameCache.project[cert.project_id] : null,
   ].filter(Boolean);
   const contextLine = contextParts.length
-    ? `<span class="hint">${escapeHtml(contextParts.join(" · "))}</span>`
+    ? `<div class="cert-card-context hint">${escapeHtml(contextParts.join(" · "))}</div>`
     : "";
-  return `<div class="acme-cert-row">
-    <strong>${escapeHtml(cert.domain)}</strong>
-    <span>${escapeHtml(cert.environment)}</span>
-    ${caLabel ? `<span>${caLabel}</span>` : ""}
-    <span>emitido em ${issuedAt}</span>
-    <span>expira em ${notAfter}</span>
-    <span>${renewalNote}</span>
+  return `<div class="cert-card">
+    <div class="cert-card-head">
+      <div class="cert-card-domain">
+        ${certBadge(certStatus(cert))}
+        <strong title="${escapeHtml(cert.domain)}">${escapeHtml(cert.domain)}</strong>
+      </div>
+      <button type="button" class="button-link cert-detail-btn" data-cert-id="${encodeURIComponent(cert.id)}">Detalhes</button>
+    </div>
+    <div class="cert-card-facts">
+      <span><strong>${caLabel}</strong></span>
+      <span>${renewalNote}</span>
+      <span>expira em ${notAfter}</span>
+    </div>
     ${contextLine}
-    <a class="button-link" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/fullchain.pem">certificado</a>
-    ${privkeyLink}
   </div>`;
 }
+
+const certDetailModal = document.getElementById("cert-detail-modal");
+
+function openCertDetailModal(cert) {
+  const status = certStatus(cert);
+  const daysLeft = cert.not_after
+    ? Math.round((new Date(cert.not_after) - new Date()) / (1000 * 60 * 60 * 24))
+    : null;
+
+  document.getElementById("cert-detail-domain").textContent = cert.domain;
+  document.getElementById("cert-detail-sans").textContent =
+    cert.sans && cert.sans.length > 1 ? `SANs: ${cert.sans.join(", ")}` : "";
+  document.getElementById("cert-detail-status").innerHTML = certBadge(status);
+  document.getElementById("cert-detail-ca").textContent = CA_LABELS[cert.ca] || "Manual/importado";
+  document.getElementById("cert-detail-issuer").textContent = cert.issuer_cn || "—";
+  document.getElementById("cert-detail-environment").textContent =
+    ENVIRONMENT_LABELS[cert.environment] || cert.environment;
+  document.getElementById("cert-detail-mode").textContent = cert.dns_mode
+    ? DNS_MODE_LABELS[cert.dns_mode] || cert.dns_mode
+    : "— (CSR manual/importado, não renova sozinho)";
+  document.getElementById("cert-detail-privkey").textContent = cert.has_private_key
+    ? "Sim"
+    : "Não (só monitorado)";
+  document.getElementById("cert-detail-key").textContent = cert.key_algorithm
+    ? `${cert.key_algorithm} ${cert.key_size ?? "?"}`
+    : "—";
+  document.getElementById("cert-detail-issued").textContent = formatDateTime(cert.issued_at);
+  document.getElementById("cert-detail-not-after").textContent = formatDateTime(cert.not_after);
+  document.getElementById("cert-detail-days").textContent = daysLeft === null ? "—" : daysLeft;
+  document.getElementById("cert-detail-org").textContent = cert.organization_id
+    ? catalogNameCache.organization[cert.organization_id] || "—"
+    : "—";
+  document.getElementById("cert-detail-system").textContent = cert.system_id
+    ? catalogNameCache.system[cert.system_id] || "—"
+    : "—";
+  document.getElementById("cert-detail-project").textContent = cert.project_id
+    ? catalogNameCache.project[cert.project_id] || "—"
+    : "—";
+  document.getElementById("cert-detail-serial").textContent = cert.serial_number || "—";
+  document.getElementById("cert-detail-fingerprint").textContent = cert.sha256_fingerprint || "—";
+
+  document.getElementById("cert-detail-download-cert").href =
+    `/api/acme/certificates/${encodeURIComponent(cert.id)}/fullchain.pem`;
+  // Duas condições independentes controlam esse link — papel (gerido por
+  // applyRoleVisibility via .hidden) e ter chave privada pra baixar. Não dá
+  // pra usar a mesma classe .hidden pras duas: applyRoleVisibility roda
+  // logo abaixo e reaplicaria .hidden só com base no papel, apagando esse
+  // toggle. Classe separada evita a briga.
+  const downloadKey = document.getElementById("cert-detail-download-key");
+  downloadKey.classList.toggle("no-private-key", !cert.has_private_key);
+  if (cert.has_private_key) {
+    downloadKey.href = `/api/acme/certificates/${encodeURIComponent(cert.id)}/privkey.pem`;
+  }
+
+  certDetailModal.classList.remove("hidden");
+  applyRoleVisibility();
+}
+
+function closeCertDetailModal() {
+  certDetailModal.classList.add("hidden");
+}
+
+document.getElementById("cert-detail-modal-close").addEventListener("click", closeCertDetailModal);
+certDetailModal.addEventListener("click", (event) => {
+  if (event.target === certDetailModal) closeCertDetailModal();
+});
 
 function applyCertificateFilters() {
   if (!certsList) return;
@@ -756,10 +845,16 @@ function applyCertificateFilters() {
   });
 
   if (!allCertificates.length) {
+    certsList.classList.remove("certs-cards");
+    certsList.classList.add("hint");
     certsList.innerHTML = "Nenhum certificado emitido ainda.";
   } else if (!filtered.length) {
+    certsList.classList.remove("certs-cards");
+    certsList.classList.add("hint");
     certsList.innerHTML = "Nenhum certificado bate com o filtro atual.";
   } else {
+    certsList.classList.remove("hint");
+    certsList.classList.add("certs-cards");
     certsList.innerHTML = filtered.map(renderCertificateRow).join("");
     applyRoleVisibility();
   }
@@ -768,6 +863,14 @@ function applyCertificateFilters() {
 [certsSearch, certsFilterCa, certsFilterMode, certsFilterStatus].forEach((el) => {
   if (!el) return;
   el.addEventListener(el.tagName === "SELECT" ? "change" : "input", applyCertificateFilters);
+});
+
+certsList.addEventListener("click", (event) => {
+  const btn = event.target.closest(".cert-detail-btn");
+  if (!btn) return;
+  const certId = decodeURIComponent(btn.dataset.certId);
+  const cert = allCertificates.find((c) => c.id === certId);
+  if (cert) openCertDetailModal(cert);
 });
 
 function sortedCounts(map) {
