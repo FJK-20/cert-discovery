@@ -575,6 +575,7 @@ const acmeZerosslForm = document.getElementById("acme-zerossl-form");
 const acmeAzureStatus = document.getElementById("acme-azure-status");
 const acmeAzureFormDetails = document.getElementById("acme-azure-form-details");
 const acmeAzureForm = document.getElementById("acme-azure-form");
+const selfdnsStatus = document.getElementById("selfdns-status");
 const acmeRenewForm = document.getElementById("acme-renew-form");
 const acmeRenewBtn = document.getElementById("acme-renew-btn");
 const acmeDnsInstructions = document.getElementById("acme-dns-instructions");
@@ -680,12 +681,23 @@ async function refreshAcmeStatus() {
       acmeAzureStatus.textContent = "Nenhum service principal do Azure DNS configurado ainda.";
       acmeAzureFormDetails.open = true;
     }
+
+    if (selfdnsStatus) {
+      selfdnsStatus.textContent = status.selfdns_enabled
+        ? `Ligado — zona própria: ${status.selfdns_zone}. Selecione "CNAME manual, sem credencial" na Emissão.`
+        : "Desligado nesta instância — precisa ser habilitado no deploy (variáveis de ambiente).";
+    }
   } catch {
     acmeDnsStatus.textContent = "";
   }
 }
 
-const AUTO_RENEWABLE_MODES = new Set(["cloudflare", "azure_dns", "cname_delegation"]);
+const AUTO_RENEWABLE_MODES = new Set([
+  "cloudflare",
+  "azure_dns",
+  "cname_delegation",
+  "self_hosted_dns",
+]);
 const CA_LABELS = { zerossl: "ZeroSSL", letsencrypt: "Let's Encrypt" };
 const ENVIRONMENT_LABELS = {
   production: "Produção (ACME)",
@@ -718,6 +730,7 @@ const DNS_MODE_LABELS = {
   cloudflare: "Cloudflare (automático)",
   azure_dns: "Azure DNS (automático)",
   cname_delegation: "Delegação CNAME (automático)",
+  self_hosted_dns: "CNAME manual, sem credencial (automático)",
   manual: "Manual — TXT (avisa, não renova sozinho)",
 };
 

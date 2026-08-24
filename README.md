@@ -201,7 +201,7 @@ ZeroSSL em Developer → EAB Credentials), configuradas uma vez na tela de
 Autoridades antes do primeiro uso; não tem ambiente de staging separado —
 todo certificado emitido por ela sai real.
 
-Quatro jeitos de resolver o desafio, escolhidos na tela de Emissão:
+Cinco jeitos de resolver o desafio, escolhidos na tela de Emissão:
 
 - **Manual (padrão)** — a aplicação calcula o registro TXT
   (`_acme-challenge.<domínio>`) e mostra o nome/valor pra você criar em
@@ -217,6 +217,12 @@ Quatro jeitos de resolver o desafio, escolhidos na tela de Emissão:
   segue 100% automática — sem token nenhum do lado do domínio emitido, e
   sem repetir o passo manual. É a mesma técnica que os principais plugins
   DNS do Certbot documentam pra provedores sem API própria.
+- **CNAME manual, sem credencial nenhuma (configuração única)** — mesma
+  ideia da delegação acima, mas sem token de API em lugar nenhum: quem
+  responde ao desafio é um servidor DNS autoritativo embutido no próprio
+  processo (`app/acme/selfdns.py`), não uma API de terceiro. Ver a seção
+  dedicada logo abaixo — exige uma delegação NS de verdade no registrador,
+  feita uma vez pelo operador da instância.
 - **Automático via Cloudflare (opcional)** — um
   [API Token](https://dash.cloudflare.com/profile/api-tokens) (não a Global
   API Key) com permissão **Zone → DNS → Edit** cria e remove o TXT sozinho,
@@ -227,12 +233,47 @@ Quatro jeitos de resolver o desafio, escolhidos na tela de Emissão:
   Manager. Cliente HTTP puro (`httpx`), sem depender do SDK oficial do
   Azure — mantém a filosofia de dependência mínima do projeto.
 
-O token da Cloudflare/credencial do Azure (usados pelos dois últimos modos)
-são validados antes de salvar e criptografados em repouso, nunca
-reexibidos. Cloudflare e Azure são dois de vários provedores possíveis — a
-interface interna (`set_dns_challenge`/`clear_dns_challenge` em
-`app/acme/issuance.py`) já é genérica o bastante pra outro provedor plugar
-sem mudar o fluxo ACME em si.
+O token da Cloudflare/credencial do Azure (usados nos dois modos
+automáticos) são validados antes de salvar e criptografados em repouso,
+nunca reexibidos. Cloudflare e Azure são dois de vários provedores
+possíveis — a interface interna (`set_dns_challenge`/`clear_dns_challenge`
+em `app/acme/issuance.py`) já é genérica o bastante pra outro provedor
+plugar sem mudar o fluxo ACME em si (é exatamente essa interface que o
+modo "CNAME manual, sem credencial" usa, só publicando a resposta num
+dict em memória local em vez de chamar uma API).
+
+### CNAME manual, sem credencial nenhuma
+
+Pensado pra quem não quer dar ao app nenhum token/app empresarial de
+DNS — nem pra uma zona pequena de delegação. O trade-off é que quem
+opera a instância (não quem certifica um domínio) precisa fazer uma
+configuração de infraestrutura real, uma vez:
+
+1. Escolha uma zona/subdomínio que você controla (ex.:
+   `acme.seudominio.com.br`) e crie, no seu provedor de DNS atual, os
+   registros `NS` delegando essa zona pro IP público onde este app vai
+   rodar (o mesmo tipo de delegação que qualquer zona filha usa — não é
+   nada específico deste app).
+2. No deploy, defina `CERTDISC_SELFDNS_ENABLED=1` e
+   `CERTDISC_SELFDNS_ZONE=acme.seudominio.com.br`, e exponha a porta
+   `53/udp` **e** `53/tcp` do container (ver `docker-compose.yml` —
+   vem comentado, é só descomentar as três linhas relevantes).
+3. Pronto. Na tela de Emissão, escolha "CNAME manual, sem credencial" —
+   na primeira emissão de cada domínio, a tela mostra um CNAME pra você
+   criar uma vez (mesma UX do modo de delegação); dali em diante, toda
+   renovação daquele domínio é automática, e nenhuma credencial de
+   terceiro nunca existiu em lugar nenhum.
+
+Por baixo do capô é um servidor DNS autoritativo mínimo — escuta
+`_acme-challenge` via o CNAME, responde só TXT pra sua própria zona
+(qualquer outro nome recebe `REFUSED`, nunca vira um resolvedor aberto
+por acidente) e só sabe o valor do desafio enquanto ele está de fato
+pendente. `dnspython` (já dependência do projeto) monta/parseia as
+mensagens; não depende de nenhuma lib de servidor DNS externa. Validado
+com consultas reais (UDP e TCP) contra o servidor rodando de verdade —
+não dá pra validar contra o Let's Encrypt real sem um domínio público
+com a delegação NS de fato configurada, então esse último passo fica
+por sua conta antes do primeiro uso em produção.
 
 ### Como usar
 
@@ -478,6 +519,9 @@ fica salvo) — perdeu, revoga e gera outra.
 | `CERTDISC_SCHEDULER_INTERVAL_SECONDS`  | `21600` (6h) | Intervalo do verificador de renovação automática |
 | `CERTDISC_MASTER_KEY`                  | (gerada automaticamente) | Chave mestra de criptografia em repouso — defina em produção, senão é gerada e persistida em `data/master.key` |
 | `CERTDISC_PUBLIC_BASE_URL`             | `http://localhost:8000` | URL pública fixa da aplicação — usada como Entity ID/ACS URL do SSO SAML, precisa bater com o que está cadastrado no IdP |
+| `CERTDISC_SELFDNS_ENABLED`             | `false` | Liga o servidor DNS autoritativo embutido pro modo "CNAME manual, sem credencial" (ver seção acima) — exige a delegação NS já estar configurada |
+| `CERTDISC_SELFDNS_ZONE`                | (vazio) | Zona que o servidor embutido responde (ex.: `acme.seudominio.com.br`) — obrigatória se `CERTDISC_SELFDNS_ENABLED=1` |
+| `CERTDISC_SELFDNS_PORT`                | `53`   | Porta UDP/TCP do servidor DNS embutido                |
 
 ## Segurança
 
@@ -567,6 +611,13 @@ push, via `pip-audit` no CI.
   se aparecer um caso de uso real (P12 não precisaria de dependência nova,
   a lib `cryptography` já suporta; JKS exigiria uma dependência nova só
   pra esse caso).
+- **Servidor DNS embutido (`CERTDISC_SELFDNS_*`) é um processo só, sem
+  redundância**: se o container cair, a zona delegada fica sem responder
+  até ele voltar — mesma limitação de "workers 1" do resto do app, agora
+  também visível de fora (pra quem depende dessa zona pra validar
+  domínio). Também não implementa DNSSEC nem AXFR/IXFR — não é um
+  servidor DNS de propósito geral, só o suficiente pra responder o
+  próprio desafio ACME.
 
 ## Testes
 

@@ -9,14 +9,14 @@ thread em `job.progress_message`/`job.state` são seguras porque cada
 atribuição é uma operação atômica sob o GIL; não há seção crítica maior
 que precise de lock aqui.
 
-Três modos de resolver o desafio DNS-01 (`job.dns_mode`):
+Quatro modos de resolver o desafio DNS-01 (`job.dns_mode`):
 - `manual` (padrão, genérico): a thread de emissão cria o pedido na CA,
   publica o nome/valor do TXT esperado em `job.dns_record_*` e
   **bloqueia** num `threading.Event` até alguém chamar `confirm_dns()` —
   isso é o que a pessoa faz manualmente em qualquer provedor de DNS, sem
   credencial nenhuma. Repete a cada emissão/renovação.
-- `cloudflare`: automático, mesmo fluxo de sempre (token de API cria e
-  remove o TXT sozinho, só uma espera fixa de propagação).
+- `cloudflare`/`azure_dns`: automático, mesmo fluxo de sempre (credencial
+  da API cria e remove o TXT sozinha, só uma espera fixa de propagação).
 - `cname_delegation`: híbrido. Na primeira vez pra um domínio, pede uma
   configuração manual única (um CNAME de `_acme-challenge.<domínio>` pra
   uma zona que o app controla) — mesmo bloqueio via evento que o modo
@@ -25,6 +25,12 @@ Três modos de resolver o desafio DNS-01 (`job.dns_mode`):
   existente e segue automática, sem token nenhum do lado do domínio
   emitido (o TXT de cada desafio é publicado na zona de delegação, que o
   app já controla via as credenciais Cloudflare salvas).
+- `self_hosted_dns`: mesma ideia híbrida do `cname_delegation` (CNAME
+  configurado uma vez, automático depois), mas SEM nenhuma credencial de
+  terceiro em lugar nenhum — a zona de delegação é respondida pelo
+  próprio processo (app/acme/selfdns.py), não por uma API externa. O
+  único pré-requisito é uma delegação NS de verdade no registrador,
+  feita uma vez pelo operador da instância, fora do app.
 """
 
 from __future__ import annotations
@@ -36,14 +42,14 @@ import time
 import uuid
 from datetime import UTC, datetime
 
-from app.acme import azure_dns, cloudflare, dns_check
+from app.acme import azure_dns, cloudflare, dns_check, selfdns
 from app.acme.history import RenewalHistoryStore, renewal_history
 from app.acme.issuance import IssuanceError, issue_certificate
 from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, CertificateAuthority, DnsMode
 from app.acme.store import AcmeStore, IssuedCertificate, acme_store
 from app.core.config import settings
 
-_EVENT_BASED_MODES = (DnsMode.MANUAL, DnsMode.CNAME_DELEGATION)
+_EVENT_BASED_MODES = (DnsMode.MANUAL, DnsMode.CNAME_DELEGATION, DnsMode.SELF_HOSTED_DNS)
 
 
 def _delegation_target(domain: str, delegation_zone: str) -> str:
@@ -184,6 +190,8 @@ class AcmeRenewalManager:
             result = self._issue_via_azure_dns(job)
         elif job.dns_mode == DnsMode.CNAME_DELEGATION:
             result = self._issue_via_cname_delegation(job)
+        elif job.dns_mode == DnsMode.SELF_HOSTED_DNS:
+            result = self._issue_via_self_hosted_dns(job)
         else:
             result = self._issue_via_manual_dns(job)
 
@@ -397,6 +405,66 @@ class AcmeRenewalManager:
             cloudflare.delete_txt_record(zone_id, record_id, creds.api_token)
 
         def wait_for_dns_ready() -> None:
+            time.sleep(settings.acme_dns_propagation_wait_seconds)
+
+        issuance_budget = max(30.0, settings.acme_job_budget_seconds - 20.0)
+
+        return issue_certificate(
+            domain=job.domain,
+            environment=self._account_storage_key(job),
+            directory_url=self._directory_url(job),
+            store=self._store,
+            set_dns_challenge=set_dns_challenge,
+            clear_dns_challenge=clear_dns_challenge,
+            wait_for_dns_ready=wait_for_dns_ready,
+            eab_kid=eab_kid,
+            eab_hmac_key=eab_hmac_key,
+            total_budget_seconds=issuance_budget,
+            on_progress=lambda message: setattr(job, "progress_message", message),
+        )
+
+    def _issue_via_self_hosted_dns(self, job: AcmeJob):
+        # Sem credencial nenhuma — mesmo espírito do modo manual, só que
+        # em vez de exigir uma pessoa recriando o TXT a cada renovação, um
+        # CNAME configurado uma vez basta pra sempre (a resposta de
+        # verdade sai deste próprio processo, ver app/acme/selfdns.py).
+        if not settings.selfdns_enabled or not settings.selfdns_zone:
+            raise IssuanceError(
+                "Servidor DNS próprio não está ligado nesta instância "
+                "(CERTDISC_SELFDNS_ENABLED/CERTDISC_SELFDNS_ZONE) — configure no "
+                "deploy antes de usar este modo."
+            )
+        eab_kid, eab_hmac_key = self._eab_credentials(job)
+
+        challenge_hostname = f"_acme-challenge.{job.domain}"
+        delegation_target = selfdns.target_hostname(job.domain)
+
+        already_delegated = asyncio.run(
+            dns_check.cname_matches(challenge_hostname, delegation_target, timeout=10.0)
+        )
+        if not already_delegated:
+            job.dns_record_type = "CNAME"
+            job.dns_record_name = challenge_hostname
+            job.dns_record_value = delegation_target
+            job.state = AcmeJobState.AWAITING_DNS
+            job.progress_message = (
+                "Aguardando você configurar o CNAME (uma vez só, sem credencial)..."
+            )
+            self._block_on_confirmation(job)
+            job.progress_message = "CNAME confirmado — prosseguindo com a emissão automática..."
+
+        def set_dns_challenge(_record_name: str, value: str) -> None:
+            job.progress_message = f"Publicando resposta do desafio em {delegation_target}..."
+            selfdns.set_challenge(job.domain, value)
+            return None
+
+        def clear_dns_challenge(_handle: None) -> None:
+            selfdns.clear_challenge(job.domain)
+
+        def wait_for_dns_ready() -> None:
+            # Mesma margem de propagação dos outros modos automáticos —
+            # dá tempo do resolvedor da CA enxergar a resposta recém-
+            # publicada antes de a CA consultar de verdade.
             time.sleep(settings.acme_dns_propagation_wait_seconds)
 
         issuance_budget = max(30.0, settings.acme_job_budget_seconds - 20.0)

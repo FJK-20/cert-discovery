@@ -18,6 +18,7 @@ from app.acme.renewal import renewal_manager
 from app.acme.store import AzureDnsCredentials, CaCredentials, DnsCredentials, acme_store
 from app.audit.log import audit_log
 from app.auth.dependencies import require_admin, require_operator, require_session
+from app.core.config import settings
 from app.core.ratelimit import SlidingWindowRateLimiter
 
 router = APIRouter(prefix="/api/acme", dependencies=[Depends(require_session)])
@@ -99,6 +100,8 @@ async def acme_status() -> dict:
         "azure_dns_configured": azure_creds is not None,
         "azure_dns_zone": azure_creds.zone_name if azure_creds else None,
         "zerossl_configured": zerossl_creds is not None,
+        "selfdns_enabled": settings.selfdns_enabled and bool(settings.selfdns_zone),
+        "selfdns_zone": settings.selfdns_zone or None,
         "accounts": {
             "staging": acme_store.load_account("staging") is not None,
             "production": acme_store.load_account("production") is not None,
@@ -184,6 +187,15 @@ async def renew(
         raise HTTPException(
             status_code=400,
             detail="Configure as credenciais do Azure DNS antes de emitir um certificado.",
+        )
+    if payload.dns_mode == DnsMode.SELF_HOSTED_DNS and not (
+        settings.selfdns_enabled and settings.selfdns_zone
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Servidor DNS próprio não está ligado nesta instância "
+            "(CERTDISC_SELFDNS_ENABLED/CERTDISC_SELFDNS_ZONE) — precisa ser configurado no "
+            "deploy, não tem como ativar pela interface.",
         )
     if payload.ca == CertificateAuthority.ZEROSSL and acme_store.load_ca_credentials(
         CertificateAuthority.ZEROSSL.value

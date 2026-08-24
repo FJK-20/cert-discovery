@@ -61,6 +61,17 @@ class Settings:
     acme_dns_propagation_wait_seconds: float = 15.0
     cloudflare_api_base: str = "https://api.cloudflare.com/client/v4"
 
+    # DNS-01 sem NENHUMA credencial de terceiro — servidor DNS autoritativo
+    # próprio embutido no processo (ver app/acme/selfdns.py e
+    # DnsMode.SELF_HOSTED_DNS). Desligado por padrão: só faz sentido depois
+    # do operador desta instância configurar uma delegação NS de verdade
+    # no registrador pra `selfdns_zone`, apontando pra onde este processo
+    # escuta — isso é feito fora do app, então não tem UI pra "ativar",
+    # só variável de ambiente mesmo (é decisão de deploy, não de tenant).
+    selfdns_enabled: bool = _bool_env("CERTDISC_SELFDNS_ENABLED", False)
+    selfdns_zone: str = os.environ.get("CERTDISC_SELFDNS_ZONE", "")
+    selfdns_port: int = _int_env("CERTDISC_SELFDNS_PORT", 53)
+
     # Agendador de renovação — verifica periodicamente certificados
     # entrando na janela de renovação (1/3 da validade restante).
     scheduler_check_interval_seconds: float = float(

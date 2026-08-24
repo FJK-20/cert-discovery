@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.acme import selfdns
 from app.acme.scheduler import scheduler
 from app.api.routes_acme import router as acme_router
 from app.api.routes_audit import router as audit_router
@@ -35,7 +36,11 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # Verifica periodicamente certificados entrando na janela de
     # renovação — ver app/acme/scheduler.py pra regra de negócio completa.
     scheduler.start()
+    # Servidor DNS próprio pro DnsMode.SELF_HOSTED_DNS — só sobe se
+    # CERTDISC_SELFDNS_ENABLED estiver ligado (ver app/acme/selfdns.py).
+    await selfdns.start()
     yield
+    selfdns.stop()
 
 
 app = FastAPI(

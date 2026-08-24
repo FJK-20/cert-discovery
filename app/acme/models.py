@@ -32,12 +32,18 @@ class DnsMode(StrEnum):
     na teoria. `CNAME_DELEGATION` fica no meio: uma configuração manual
     única (um CNAME) e, depois disso, toda renovação futura daquele
     domínio é automática — sem token nenhum do lado do domínio emitido
-    (usa a credencial Cloudflare salva como zona de delegação)."""
+    (usa a credencial Cloudflare salva como zona de delegação).
+    `SELF_HOSTED_DNS` é a mesma ideia da delegação, mas sem NENHUMA
+    credencial de terceiro em lugar nenhum: o CNAME aponta pra uma zona
+    que o próprio processo deste app responde diretamente (servidor DNS
+    embutido, ver app/acme/selfdns.py) — o operador da instância faz uma
+    delegação NS de verdade no registrador, uma vez, fora do app."""
 
     MANUAL = "manual"
     CLOUDFLARE = "cloudflare"
     AZURE_DNS = "azure_dns"
     CNAME_DELEGATION = "cname_delegation"
+    SELF_HOSTED_DNS = "self_hosted_dns"
 
 
 class AcmeJobState(StrEnum):

@@ -319,6 +319,7 @@
         <select id="acme-dns-mode">
           <option value="manual" selected>Manual — eu crio o registro TXT a cada emissão (qualquer provedor de DNS)</option>
           <option value="cname_delegation">Delegação CNAME — configuro uma vez, depois é automático (precisa de token de API numa zona sua)</option>
+          <option value="self_hosted_dns">CNAME manual, sem credencial — configuro uma vez, depois é automático (zero token, exige a instância ter isso habilitado — ver Autoridades)</option>
           <option value="cloudflare">Automático via Cloudflare (precisa de token de API na zona do domínio emitido)</option>
           <option value="azure_dns">Automático via Azure DNS (precisa de service principal na zona do domínio emitido)</option>
         </select>
@@ -491,6 +492,7 @@
           <option value="cloudflare">Cloudflare</option>
           <option value="azure_dns">Azure DNS</option>
           <option value="cname_delegation">Delegação CNAME</option>
+          <option value="self_hosted_dns">CNAME manual, sem credencial</option>
           <option value="manual">Manual (TXT)</option>
           <option value="none">Sem renovação automática</option>
         </select>
@@ -841,6 +843,20 @@
           <button type="submit">Salvar e validar</button>
         </form>
       </details>
+    </section>
+
+    <section class="card">
+      <h3>CNAME manual, sem credencial (DNS próprio da instância)</h3>
+      <p class="hint">
+        Mesma ideia da delegação CNAME acima — um CNAME configurado uma
+        vez, automático dali em diante — mas sem token de API nenhum: quem
+        responde ao desafio é o próprio processo deste app, não um
+        provedor terceiro. Não tem "configurar" por aqui: exige uma
+        delegação NS de verdade no registrador, decidida no deploy desta
+        instância (variáveis <code>CERTDISC_SELFDNS_ENABLED</code> e
+        <code>CERTDISC_SELFDNS_ZONE</code> — ver README).
+      </p>
+      <div id="selfdns-status" class="hint"></div>
     </section>
     </div>
 

@@ -3,6 +3,15 @@ services:
     build: .
     ports:
       - "8000:8000"
+      # DnsMode.SELF_HOSTED_DNS (CNAME manual, sem credencial nenhuma —
+      # ver README) precisa do container escutando DNS de verdade.
+      # Descomente as duas linhas abaixo (e as variáveis CERTDISC_SELFDNS_*
+      # logo adiante) só depois de ter feito a delegação NS de verdade no
+      # registrador pra CERTDISC_SELFDNS_ZONE — sem isso ligado, ninguém
+      # de fora nunca vai perguntar nada pra essa porta, então não custa
+      # nada deixar comentado até precisar.
+      # - "53:53/udp"
+      # - "53:53/tcp"
     environment:
       - CERTDISC_MAX_HOSTS=400
       - CERTDISC_MAX_CONCURRENCY=30
@@ -12,6 +21,8 @@ services:
       # que fica cadastrado no IdP — não dá pra derivar da request (varia
       # entre acesso LAN e túnel público).
       - CERTDISC_PUBLIC_BASE_URL=https://certmanager.fausto.app.br
+      # - CERTDISC_SELFDNS_ENABLED=1
+      # - CERTDISC_SELFDNS_ZONE=acme.seudominio.com.br
     volumes:
       # Persiste o cadastro do admin (usuário, hash de senha, segredo TOTP)
       # entre reinícios do container.
