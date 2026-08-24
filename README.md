@@ -197,9 +197,9 @@ duas CAs que falam ACME v2 — [Let's Encrypt](https://letsencrypt.org/) e
 de posse de domínio que qualquer CA usa, mas sem depender de expor a porta
 80 do host (diferente do desafio HTTP-01). ZeroSSL exige credenciais de
 External Account Binding (EAB — kid + hmac key, obtidas no painel da
-ZeroSSL em Developer → EAB Credentials), configuradas uma vez em
-Configurações antes do primeiro uso; não tem ambiente de staging separado
-— todo certificado emitido por ela sai real.
+ZeroSSL em Developer → EAB Credentials), configuradas uma vez na tela de
+Autoridades antes do primeiro uso; não tem ambiente de staging separado —
+todo certificado emitido por ela sai real.
 
 Quatro jeitos de resolver o desafio, escolhidos na tela de Emissão:
 
@@ -301,9 +301,11 @@ gera um CSR (Certificate Signing Request) tradicional:
    outra CSR, por exemplo) é rejeitado com uma mensagem clara, não salvo
    silenciosamente.
 4. O certificado concluído entra na mesma lista dos emitidos via ACME (tela
-   de Renovação), com o modo de renovação marcado como manual — a
+   de Certificados), com o modo de renovação marcado como manual — a
    automação da seção abaixo nunca tenta renová-lo sozinha, só notifica
-   quando ele entra na janela de expiração.
+   quando ele entra na janela de expiração. Opcionalmente, é possível
+   registrar motivo e número de chamado ao concluir — fica no log de
+   auditoria, não é um sistema de aprovação separado.
 
 ## Importação de certificado existente
 
@@ -315,8 +317,8 @@ de Emissão.
 - **Com chave privada**: a aplicação confirma que a chave corresponde ao
   certificado (mesma checagem do fluxo de CSR) antes de aceitar. A partir
   daí funciona como qualquer outro certificado manual — aparece em
-  Renovação, pode ser baixado, é avisado (não renovado sozinho, já que não
-  foi emitido via ACME) quando entra na janela de expiração.
+  Certificados, pode ser baixado, é avisado (não renovado sozinho, já que
+  não foi emitido via ACME) quando entra na janela de expiração.
 - **Sem chave privada**: entra como **só monitorado** — a aplicação
   acompanha a expiração e avisa, mas não há chave pra baixar nem como
   renovar automaticamente. Útil pra ter visibilidade de um certificado que
@@ -620,7 +622,7 @@ específicas):
 
 **Fase 8 — funcionalidades vistas num Certificate Manager real** (a
 partir de uma comparação direta com uma instância real em produção, não
-a página de marketing):
+a página de marketing) — **completa, 5/5 itens**:
 
 - **Fila de requisições com contexto — feito.** Cadastro completo de
   Organizações/Sistemas/Projetos (ver seção acima), referenciados
@@ -628,22 +630,27 @@ a página de marketing):
   pedido explícito do usuário — inicialmente planejado como campos livres
   sem cadastro próprio, evoluído pra CRUD completo de verdade (admin-only,
   com edição, status ativo/inativo, e auditoria) a pedido dele.
-- **Justificativa/motivo no CSR manual** — motivo + número de chamado
-  opcionais na conclusão do CSR, registrados no log de auditoria que já
-  existe (não duplica como sistema de aprovação separado). Ainda não
-  implementado.
-- **Dashboard com mais dimensões** — quebra por CA, ambiente, tamanho e
-  algoritmo de chave, além dos gráficos por emissor/prazo que já
-  existem. Ainda não implementado.
-- **Radar de risco** — gráfico radar (CA × dias até expirar), mesmo
-  princípio dos gráficos de barra já existentes (SVG desenhado à mão,
-  sem lib externa). Ainda não implementado.
-- **Página dedicada de Autoridades/Integrações** — hoje a configuração de
-  CA/DNS fica espalhada em blocos dentro de Emissão; uma tela própria
-  centraliza isso. Ainda não implementado.
-- **Página dedicada de Certificados** — separada de Renovação (que fica
-  focada em fila/histórico de tentativas): busca, filtro por CA/ambiente/
-  status. Ainda não implementado.
+- **Justificativa/motivo no CSR manual — feito.** Motivo + número de
+  chamado opcionais na conclusão do CSR, registrados no log de auditoria
+  que já existe (não duplica como sistema de aprovação separado).
+- **Página dedicada de Autoridades/Integrações — feito.** A configuração
+  de CA/DNS (Cloudflare, ZeroSSL, Azure DNS) saiu de dentro de Emissão e
+  virou uma tela própria; Emissão passou a linkar pra lá em vez de
+  duplicar os formulários.
+- **Página dedicada de Certificados — feito.** Separada de Renovação
+  (que ficou só com fila/histórico de tentativas): busca por domínio,
+  filtro por CA/modo de renovação/status derivado (válido/expirando/
+  expirado/monitorado).
+- **Dashboard com mais dimensões — feito.** Novo card no Dashboard com a
+  quebra dos certificados gerenciados por CA, ambiente, algoritmo/
+  tamanho de chave (derivado do PEM na hora da listagem, sem campo extra
+  pra manter sincronizado) e organização — independente de já ter
+  rodado algum scan de descoberta.
+- **Radar de risco — feito.** Radar SVG desenhado à mão (mesmo princípio
+  dos gráficos de barra, sem lib de gráfico externa): um eixo por CA em
+  uso, raio = risco do certificado mais urgente daquela CA. Esconde o
+  card com menos de 3 CAs distintas em vez de desenhar um triângulo sem
+  sentido.
 
 ## Licença
 
