@@ -183,7 +183,8 @@ async def renew(
             status_code=400,
             detail="Configure as credenciais de DNS (Cloudflare) antes de emitir um certificado.",
         )
-    if payload.dns_mode == DnsMode.AZURE_DNS and acme_store.load_azure_dns_credentials() is None:
+    needs_azure = payload.dns_mode in (DnsMode.AZURE_DNS, DnsMode.AZURE_CNAME_DELEGATION)
+    if needs_azure and acme_store.load_azure_dns_credentials() is None:
         raise HTTPException(
             status_code=400,
             detail="Configure as credenciais do Azure DNS antes de emitir um certificado.",

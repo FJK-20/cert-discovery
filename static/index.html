@@ -318,7 +318,8 @@
         <label for="acme-dns-mode">Como validar o domínio</label>
         <select id="acme-dns-mode">
           <option value="manual" selected>Manual — eu crio o registro TXT a cada emissão (qualquer provedor de DNS)</option>
-          <option value="cname_delegation">Delegação CNAME — configuro uma vez, depois é automático (precisa de token de API numa zona sua)</option>
+          <option value="cname_delegation">Delegação CNAME via Cloudflare — configuro uma vez, depois é automático (token restrito a uma zona pequena, não ao domínio principal)</option>
+          <option value="azure_cname_delegation">Delegação CNAME via Azure DNS — configuro uma vez, depois é automático (service principal restrito a uma zona pequena, não ao domínio principal)</option>
           <option value="self_hosted_dns">CNAME manual, sem credencial — configuro uma vez, depois é automático (zero token, exige a instância ter isso habilitado — ver Autoridades)</option>
           <option value="cloudflare">Automático via Cloudflare (precisa de token de API na zona do domínio emitido)</option>
           <option value="azure_dns">Automático via Azure DNS (precisa de service principal na zona do domínio emitido)</option>
@@ -491,7 +492,8 @@
           <option value="">Todo modo</option>
           <option value="cloudflare">Cloudflare</option>
           <option value="azure_dns">Azure DNS</option>
-          <option value="cname_delegation">Delegação CNAME</option>
+          <option value="cname_delegation">Delegação CNAME (Cloudflare)</option>
+          <option value="azure_cname_delegation">Delegação CNAME (Azure DNS)</option>
           <option value="self_hosted_dns">CNAME manual, sem credencial</option>
           <option value="manual">Manual (TXT)</option>
           <option value="none">Sem renovação automática</option>
@@ -838,7 +840,11 @@
           <p class="hint">
             O service principal precisa do papel "DNS Zone Contributor"
             escopado só a essa zona (não à subscription inteira) — ver
-            Access control (IAM) da zona no portal do Azure.
+            Access control (IAM) da zona no portal do Azure. Pra usar o
+            modo "Delegação CNAME via Azure DNS" (menor escopo ainda), essa
+            zona não precisa ser seu domínio principal — pode ser uma zona
+            pequena dedicada só a receber os desafios de qualquer domínio
+            delegado.
           </p>
           <button type="submit">Salvar e validar</button>
         </form>

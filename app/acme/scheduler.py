@@ -41,6 +41,7 @@ _AUTO_RENEWABLE_MODES = {
     DnsMode.CLOUDFLARE.value,
     DnsMode.AZURE_DNS.value,
     DnsMode.CNAME_DELEGATION.value,
+    DnsMode.AZURE_CNAME_DELEGATION.value,
     DnsMode.SELF_HOSTED_DNS.value,
 }
 _TERMINAL_STATES = {AcmeJobState.DONE.value, AcmeJobState.FAILED.value}

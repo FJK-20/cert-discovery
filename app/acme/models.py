@@ -29,20 +29,26 @@ class DnsMode(StrEnum):
     `CLOUDFLARE` e `AZURE_DNS` são plugins opcionais pra quem quer
     automação total, cada um com sua própria credencial — dois provedores
     reais provando que a interface de plugin é plugável de verdade, não só
-    na teoria. `CNAME_DELEGATION` fica no meio: uma configuração manual
-    única (um CNAME) e, depois disso, toda renovação futura daquele
-    domínio é automática — sem token nenhum do lado do domínio emitido
-    (usa a credencial Cloudflare salva como zona de delegação).
-    `SELF_HOSTED_DNS` é a mesma ideia da delegação, mas sem NENHUMA
-    credencial de terceiro em lugar nenhum: o CNAME aponta pra uma zona
-    que o próprio processo deste app responde diretamente (servidor DNS
-    embutido, ver app/acme/selfdns.py) — o operador da instância faz uma
-    delegação NS de verdade no registrador, uma vez, fora do app."""
+    na teoria; nesse modo "direto", a credencial precisa de acesso de
+    escrita na zona do PRÓPRIO domínio emitido. `CNAME_DELEGATION` e
+    `AZURE_CNAME_DELEGATION` ficam no meio: uma configuração manual única
+    (um CNAME) e, depois disso, toda renovação futura daquele domínio é
+    automática — sem token nenhum do lado do domínio emitido, e a
+    credencial (Cloudflare ou Azure, respectivamente) só precisa de
+    acesso a uma zona de delegação pequena e dedicada, nunca ao domínio
+    principal — reduz bastante o escopo do que a credencial consegue
+    fazer se vazar. `SELF_HOSTED_DNS` é a mesma ideia da delegação, mas
+    sem NENHUMA credencial de terceiro em lugar nenhum: o CNAME aponta
+    pra uma zona que o próprio processo deste app responde diretamente
+    (servidor DNS embutido, ver app/acme/selfdns.py) — o operador da
+    instância faz uma delegação NS de verdade no registrador, uma vez,
+    fora do app."""
 
     MANUAL = "manual"
     CLOUDFLARE = "cloudflare"
     AZURE_DNS = "azure_dns"
     CNAME_DELEGATION = "cname_delegation"
+    AZURE_CNAME_DELEGATION = "azure_cname_delegation"
     SELF_HOSTED_DNS = "self_hosted_dns"
 
 

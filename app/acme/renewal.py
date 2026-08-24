@@ -49,7 +49,12 @@ from app.acme.models import AcmeEnvironment, AcmeJob, AcmeJobState, CertificateA
 from app.acme.store import AcmeStore, IssuedCertificate, acme_store
 from app.core.config import settings
 
-_EVENT_BASED_MODES = (DnsMode.MANUAL, DnsMode.CNAME_DELEGATION, DnsMode.SELF_HOSTED_DNS)
+_EVENT_BASED_MODES = (
+    DnsMode.MANUAL,
+    DnsMode.CNAME_DELEGATION,
+    DnsMode.AZURE_CNAME_DELEGATION,
+    DnsMode.SELF_HOSTED_DNS,
+)
 
 
 def _delegation_target(domain: str, delegation_zone: str) -> str:
@@ -190,6 +195,8 @@ class AcmeRenewalManager:
             result = self._issue_via_azure_dns(job)
         elif job.dns_mode == DnsMode.CNAME_DELEGATION:
             result = self._issue_via_cname_delegation(job)
+        elif job.dns_mode == DnsMode.AZURE_CNAME_DELEGATION:
+            result = self._issue_via_azure_cname_delegation(job)
         elif job.dns_mode == DnsMode.SELF_HOSTED_DNS:
             result = self._issue_via_self_hosted_dns(job)
         else:
@@ -403,6 +410,71 @@ class AcmeRenewalManager:
         def clear_dns_challenge(handle: tuple[str, str]) -> None:
             zone_id, record_id = handle
             cloudflare.delete_txt_record(zone_id, record_id, creds.api_token)
+
+        def wait_for_dns_ready() -> None:
+            time.sleep(settings.acme_dns_propagation_wait_seconds)
+
+        issuance_budget = max(30.0, settings.acme_job_budget_seconds - 20.0)
+
+        return issue_certificate(
+            domain=job.domain,
+            environment=self._account_storage_key(job),
+            directory_url=self._directory_url(job),
+            store=self._store,
+            set_dns_challenge=set_dns_challenge,
+            clear_dns_challenge=clear_dns_challenge,
+            wait_for_dns_ready=wait_for_dns_ready,
+            eab_kid=eab_kid,
+            eab_hmac_key=eab_hmac_key,
+            total_budget_seconds=issuance_budget,
+            on_progress=lambda message: setattr(job, "progress_message", message),
+        )
+
+    def _issue_via_azure_cname_delegation(self, job: AcmeJob):
+        # Mesmo padrão de _issue_via_cname_delegation, trocando Cloudflare
+        # por Azure DNS — reaproveita a MESMA credencial que o modo
+        # "direto" (azure_dns) já usa (AzureDnsCredentials.zone_name), só
+        # que aqui essa zona não precisa ser o domínio principal: pode ser
+        # uma zona pequena e dedicada só pra receber os desafios de
+        # qualquer domínio delegado, reduzindo o escopo do que o service
+        # principal do Azure consegue alterar.
+        creds = self._store.load_azure_dns_credentials()
+        if creds is None:
+            raise IssuanceError(
+                "Nenhuma credencial do Azure DNS configurada. Configure o "
+                "service principal (em Autoridades) antes de usar este modo — "
+                "pode apontar pra uma zona pequena dedicada, não precisa ser o "
+                "domínio principal."
+            )
+        eab_kid, eab_hmac_key = self._eab_credentials(job)
+
+        challenge_hostname = f"_acme-challenge.{job.domain}"
+        delegation_target = _delegation_target(job.domain, creds.zone_name)
+
+        already_delegated = asyncio.run(
+            dns_check.cname_matches(challenge_hostname, delegation_target, timeout=10.0)
+        )
+        if not already_delegated:
+            job.dns_record_type = "CNAME"
+            job.dns_record_name = challenge_hostname
+            job.dns_record_value = delegation_target
+            job.state = AcmeJobState.AWAITING_DNS
+            job.progress_message = "Aguardando você configurar o CNAME de delegação (uma vez só)..."
+            self._block_on_confirmation(job)
+            job.progress_message = "CNAME confirmado — prosseguindo com a emissão automática..."
+
+        def set_dns_challenge(_record_name: str, value: str) -> str:
+            # O desafio de verdade é publicado no ALVO do CNAME (a zona de
+            # delegação no Azure), não no nome original do domínio emitido
+            # — é isso que faz a validação seguir o CNAME.
+            job.progress_message = f"Criando registro TXT em {delegation_target}..."
+            try:
+                return azure_dns.create_txt_record(creds, delegation_target, value)
+            except azure_dns.AzureDnsError as exc:
+                raise IssuanceError(f"Falha ao configurar o DNS de delegação: {exc}") from exc
+
+        def clear_dns_challenge(relative_name: str) -> None:
+            azure_dns.delete_txt_record(creds, relative_name)
 
         def wait_for_dns_ready() -> None:
             time.sleep(settings.acme_dns_propagation_wait_seconds)

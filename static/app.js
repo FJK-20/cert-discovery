@@ -696,6 +696,7 @@ const AUTO_RENEWABLE_MODES = new Set([
   "cloudflare",
   "azure_dns",
   "cname_delegation",
+  "azure_cname_delegation",
   "self_hosted_dns",
 ]);
 const CA_LABELS = { zerossl: "ZeroSSL", letsencrypt: "Let's Encrypt" };
@@ -729,7 +730,8 @@ const CERT_STATUS_GLYPHS = { valid: "✓", expiring: "◆", expired: "✕", moni
 const DNS_MODE_LABELS = {
   cloudflare: "Cloudflare (automático)",
   azure_dns: "Azure DNS (automático)",
-  cname_delegation: "Delegação CNAME (automático)",
+  cname_delegation: "Delegação CNAME via Cloudflare (automático)",
+  azure_cname_delegation: "Delegação CNAME via Azure DNS (automático)",
   self_hosted_dns: "CNAME manual, sem credencial (automático)",
   manual: "Manual — TXT (avisa, não renova sozinho)",
 };

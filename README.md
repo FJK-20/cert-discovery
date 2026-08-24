@@ -201,7 +201,7 @@ ZeroSSL em Developer → EAB Credentials), configuradas uma vez na tela de
 Autoridades antes do primeiro uso; não tem ambiente de staging separado —
 todo certificado emitido por ela sai real.
 
-Cinco jeitos de resolver o desafio, escolhidos na tela de Emissão:
+Seis jeitos de resolver o desafio, escolhidos na tela de Emissão:
 
 - **Manual (padrão)** — a aplicação calcula o registro TXT
   (`_acme-challenge.<domínio>`) e mostra o nome/valor pra você criar em
@@ -209,20 +209,32 @@ Cinco jeitos de resolver o desafio, escolhidos na tela de Emissão:
   propagação e continuar" confirma via consulta DNS real antes de avisar a
   CA — evita gastar uma tentativa de validação (rate limit da CA) num
   registro que ainda não propagou. Repete a cada emissão/renovação.
-- **Delegação CNAME (configuração única)** — meio-termo entre o manual e o
-  automático. Na primeira vez pra um domínio, você configura **uma vez** um
+- **Delegação CNAME via Cloudflare (configuração única)** — meio-termo
+  entre o manual e o automático. Na primeira vez pra um domínio, você
+  configura **uma vez** um
   `CNAME _acme-challenge.<domínio> → <hash>.acme-delegate.<sua zona>`
   apontando pra uma zona que você controla via API. Dali em diante, toda
   emissão/renovação futura *daquele domínio* detecta o CNAME já existente e
   segue 100% automática — sem token nenhum do lado do domínio emitido, e
-  sem repetir o passo manual. É a mesma técnica que os principais plugins
-  DNS do Certbot documentam pra provedores sem API própria.
+  sem repetir o passo manual. A zona de delegação não precisa ser seu
+  domínio principal — pode (e deveria) ser uma zona pequena dedicada só a
+  isso, restringindo o escopo do token à zona certa. É a mesma técnica que
+  os principais plugins DNS do Certbot documentam pra provedores sem API
+  própria.
+- **Delegação CNAME via Azure DNS (configuração única)** — exatamente a
+  mesma ideia acima, trocando Cloudflare por Azure DNS: reaproveita a
+  mesma credencial (service principal) do modo "Automático via Azure DNS"
+  abaixo, mas apontada pra uma zona pequena dedicada em vez do domínio
+  principal — reduz o que o service principal consegue alterar se a
+  credencial vazar.
 - **CNAME manual, sem credencial nenhuma (configuração única)** — mesma
   ideia da delegação acima, mas sem token de API em lugar nenhum: quem
   responde ao desafio é um servidor DNS autoritativo embutido no próprio
   processo (`app/acme/selfdns.py`), não uma API de terceiro. Ver a seção
   dedicada logo abaixo — exige uma delegação NS de verdade no registrador,
-  feita uma vez pelo operador da instância.
+  feita uma vez pelo operador da instância, e manter uma porta exposta e
+  um processo no ar (trade-off real: zero credencial, mas com
+  infraestrutura própria pra manter).
 - **Automático via Cloudflare (opcional)** — um
   [API Token](https://dash.cloudflare.com/profile/api-tokens) (não a Global
   API Key) com permissão **Zone → DNS → Edit** cria e remove o TXT sozinho,
@@ -232,6 +244,15 @@ Cinco jeitos de resolver o desafio, escolhidos na tela de Emissão:
   subscription inteira) faz a mesma coisa via API REST do Azure Resource
   Manager. Cliente HTTP puro (`httpx`), sem depender do SDK oficial do
   Azure — mantém a filosofia de dependência mínima do projeto.
+
+Qual escolher, em ordem do menor pro maior esforço de configuração: manual
+(zero setup, mas ação manual em toda renovação) → delegação CNAME via
+Cloudflare/Azure (setup leve — um token restrito a uma zona pequena, free
+tier — depois 100% automático) → CNAME manual sem credencial (zero
+credencial, mas exige rodar e manter um servidor DNS de verdade) →
+automático direto (mais simples de configurar entre os automáticos, mas a
+credencial tem acesso de escrita ao domínio principal inteiro, não a uma
+zona pequena isolada).
 
 O token da Cloudflare/credencial do Azure (usados nos dois modos
 automáticos) são validados antes de salvar e criptografados em repouso,
