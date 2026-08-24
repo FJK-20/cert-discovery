@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+from cryptography import x509
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -255,24 +257,44 @@ async def renewal_history_list(limit: int = 30) -> list[dict]:
     return renewal_history.recent(min(max(limit, 1), 100))
 
 
+def _key_info(fullchain_pem: str) -> tuple[str | None, int | None]:
+    # Derivado do PEM na hora da listagem em vez de guardado no
+    # IssuedCertificate — é um dado que já vive dentro do certificado, não
+    # precisa de mais um campo pra manter sincronizado.
+    try:
+        public_key = x509.load_pem_x509_certificate(fullchain_pem.encode()).public_key()
+    except ValueError:
+        return None, None
+    if isinstance(public_key, rsa.RSAPublicKey):
+        return "RSA", public_key.key_size
+    if isinstance(public_key, ec.EllipticCurvePublicKey):
+        return "EC", public_key.key_size
+    return None, None
+
+
 @router.get("/certificates")
 async def list_certificates() -> list[dict]:
-    return [
-        {
-            "id": c.id,
-            "domain": c.domain,
-            "environment": c.environment,
-            "issued_at": c.issued_at,
-            "not_after": c.not_after,
-            "dns_mode": c.dns_mode,
-            "ca": c.ca,
-            "has_private_key": c.private_key_pem is not None,
-            "organization_id": c.organization_id,
-            "system_id": c.system_id,
-            "project_id": c.project_id,
-        }
-        for c in acme_store.list_certificates()
-    ]
+    result = []
+    for c in acme_store.list_certificates():
+        key_algorithm, key_size = _key_info(c.fullchain_pem)
+        result.append(
+            {
+                "id": c.id,
+                "domain": c.domain,
+                "environment": c.environment,
+                "issued_at": c.issued_at,
+                "not_after": c.not_after,
+                "dns_mode": c.dns_mode,
+                "ca": c.ca,
+                "has_private_key": c.private_key_pem is not None,
+                "organization_id": c.organization_id,
+                "system_id": c.system_id,
+                "project_id": c.project_id,
+                "key_algorithm": key_algorithm,
+                "key_size": key_size,
+            }
+        )
+    return result
 
 
 @router.get("/certificates/{cert_id}/fullchain.pem")

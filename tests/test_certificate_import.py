@@ -77,6 +77,8 @@ def test_import_certificate_with_matching_key(tmp_path, monkeypatch):
     assert imported["environment"] == "imported"
     assert imported["dns_mode"] is None
     assert imported["has_private_key"] is True
+    assert imported["key_algorithm"] == "RSA"
+    assert imported["key_size"] == pki_keys.KEY_SIZE
 
     privkey_response = client.get(f"/api/acme/certificates/{body['certificate_id']}/privkey.pem")
     assert privkey_response.status_code == 200

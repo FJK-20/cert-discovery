@@ -132,6 +132,32 @@
         </p>
       </section>
 
+      <section id="managed-overview-card" class="card hidden">
+        <h2>Certificados gerenciados</h2>
+        <p class="hint">
+          Emitidos, importados e via CSR manual — ver lista completa em
+          <a class="button-link" href="#certificados">Certificados</a>.
+        </p>
+        <div class="overview-grid">
+          <div class="chart-block">
+            <h3>Por autoridade certificadora</h3>
+            <div id="chart-managed-ca" class="bar-chart"></div>
+          </div>
+          <div class="chart-block">
+            <h3>Por ambiente</h3>
+            <div id="chart-managed-environment" class="bar-chart"></div>
+          </div>
+          <div class="chart-block">
+            <h3>Por algoritmo/tamanho de chave</h3>
+            <div id="chart-managed-keyalg" class="bar-chart"></div>
+          </div>
+          <div class="chart-block">
+            <h3>Por cadastro (organização)</h3>
+            <div id="chart-managed-org" class="bar-chart"></div>
+          </div>
+        </div>
+      </section>
+
       <section id="scan-history-card" class="card hidden">
         <h2><svg class="icon"><use href="#icon-clock"/></svg> Scans recentes</h2>
         <p class="hint">Sobrevivem a um restart — clique num pra reabrir o resultado.</p>

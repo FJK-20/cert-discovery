@@ -537,6 +537,11 @@ const certsSearch = document.getElementById("certs-search");
 const certsFilterCa = document.getElementById("certs-filter-ca");
 const certsFilterMode = document.getElementById("certs-filter-mode");
 const certsFilterStatus = document.getElementById("certs-filter-status");
+const managedOverviewCard = document.getElementById("managed-overview-card");
+const chartManagedCa = document.getElementById("chart-managed-ca");
+const chartManagedEnvironment = document.getElementById("chart-managed-environment");
+const chartManagedKeyalg = document.getElementById("chart-managed-keyalg");
+const chartManagedOrg = document.getElementById("chart-managed-org");
 
 const ACME_TERMINAL_STATES = new Set(["done", "failed"]);
 let currentAcmeJobId = null;
@@ -618,6 +623,13 @@ async function refreshAcmeStatus() {
 }
 
 const AUTO_RENEWABLE_MODES = new Set(["cloudflare", "azure_dns", "cname_delegation"]);
+const CA_LABELS = { zerossl: "ZeroSSL", letsencrypt: "Let's Encrypt" };
+const ENVIRONMENT_LABELS = {
+  production: "Produção (ACME)",
+  staging: "Staging (ACME)",
+  imported: "Importado",
+  manual: "CSR manual",
+};
 let allCertificates = [];
 
 // Status derivado (não vem pronto da API): "monitorado" é sobre não ter
@@ -638,7 +650,7 @@ function renderCertificateRow(cert) {
   const renewalNote = AUTO_RENEWABLE_MODES.has(cert.dns_mode)
     ? "renovação automática"
     : "renovação manual";
-  const caLabel = cert.ca === "zerossl" ? "ZeroSSL" : cert.ca === "letsencrypt" ? "Let's Encrypt" : null;
+  const caLabel = CA_LABELS[cert.ca] || null;
   const privkeyLink = cert.has_private_key
     ? `<a class="button-link" data-requires-role="admin,operador" href="/api/acme/certificates/${encodeURIComponent(cert.id)}/privkey.pem">chave privada</a>`
     : `<span class="hint">só monitorado (sem chave privada)</span>`;
@@ -695,12 +707,56 @@ function applyCertificateFilters() {
   el.addEventListener(el.tagName === "SELECT" ? "change" : "input", applyCertificateFilters);
 });
 
+function sortedCounts(map) {
+  return [...map.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+// Painel do Dashboard sobre os certificados GERENCIADOS (emitidos/CSR/
+// importados) — eixo diferente do painel de descoberta (chart-issuers/
+// chart-expiry, que é sobre o que o scan achou na internet). Roda toda
+// vez que a lista de certificados ou os cadastros mudam, já que o
+// cruzamento por organização depende do catalogNameCache.
+function renderManagedCertsOverview() {
+  if (!managedOverviewCard) return;
+  if (!allCertificates.length) {
+    managedOverviewCard.classList.add("hidden");
+    return;
+  }
+  managedOverviewCard.classList.remove("hidden");
+
+  const caCounts = new Map();
+  const envCounts = new Map();
+  const keyCounts = new Map();
+  const orgCounts = new Map();
+  allCertificates.forEach((cert) => {
+    const caLabel = CA_LABELS[cert.ca] || "Manual/importado";
+    caCounts.set(caLabel, (caCounts.get(caLabel) || 0) + 1);
+
+    const envLabel = ENVIRONMENT_LABELS[cert.environment] || cert.environment;
+    envCounts.set(envLabel, (envCounts.get(envLabel) || 0) + 1);
+
+    const keyLabel = cert.key_algorithm ? `${cert.key_algorithm} ${cert.key_size ?? "?"}` : "Desconhecido";
+    keyCounts.set(keyLabel, (keyCounts.get(keyLabel) || 0) + 1);
+
+    const orgLabel = cert.organization_id
+      ? catalogNameCache.organization[cert.organization_id] || "Organização removida"
+      : "Sem organização";
+    orgCounts.set(orgLabel, (orgCounts.get(orgLabel) || 0) + 1);
+  });
+
+  barChart(chartManagedCa, sortedCounts(caCounts));
+  barChart(chartManagedEnvironment, sortedCounts(envCounts));
+  barChart(chartManagedKeyalg, sortedCounts(keyCounts));
+  barChart(chartManagedOrg, sortedCounts(orgCounts).slice(0, 8));
+}
+
 async function refreshAcmeCertificates() {
   try {
     const response = await fetch("/api/acme/certificates");
     if (!response.ok) return;
     allCertificates = await response.json();
     applyCertificateFilters();
+    renderManagedCertsOverview();
   } catch {
     // mantém a lista anterior se o fetch falhar
   }
@@ -1731,6 +1787,11 @@ function populateCatalogSelects(kind, items) {
       select.value = previousValue;
     }
   }
+  // Cadastros e certificados carregam em paralelo — se os certificados
+  // chegaram primeiro, contextLine/chart-managed-org ficaram com "removido"
+  // por falta de nome ainda; re-renderiza agora que o cache tem o nome.
+  applyCertificateFilters();
+  renderManagedCertsOverview();
 }
 
 // Organizações
