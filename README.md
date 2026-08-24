@@ -622,7 +622,7 @@ específicas):
 
 **Fase 8 — funcionalidades vistas num Certificate Manager real** (a
 partir de uma comparação direta com uma instância real em produção, não
-a página de marketing) — **completa, 5/5 itens**:
+a página de marketing) — **completa, 6/6 itens**:
 
 - **Fila de requisições com contexto — feito.** Cadastro completo de
   Organizações/Sistemas/Projetos (ver seção acima), referenciados
