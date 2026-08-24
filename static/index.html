@@ -158,6 +158,19 @@
         </div>
       </section>
 
+      <section id="risk-radar-card" class="card hidden">
+        <h2>Mapa de risco por autoridade certificadora</h2>
+        <p class="hint">
+          Cada eixo é uma CA; a distância até a borda mostra o quão perto do
+          vencimento está o certificado mais urgente daquela CA — quanto mais
+          perto da borda, mais urgente.
+        </p>
+        <div class="radar-layout">
+          <div id="chart-risk-radar" class="radar-chart"></div>
+          <ul id="risk-radar-legend" class="radar-legend"></ul>
+        </div>
+      </section>
+
       <section id="scan-history-card" class="card hidden">
         <h2><svg class="icon"><use href="#icon-clock"/></svg> Scans recentes</h2>
         <p class="hint">Sobrevivem a um restart — clique num pra reabrir o resultado.</p>

@@ -751,6 +751,84 @@ footer {
   font-variant-numeric: tabular-nums;
 }
 
+/* Radar de risco */
+.radar-layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2rem;
+}
+
+.radar-chart {
+  flex: 0 0 auto;
+  width: min(300px, 100%);
+}
+
+.radar-chart .empty {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.radar-svg {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.radar-ring,
+.radar-axis {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.radar-fill {
+  fill: var(--critical);
+  fill-opacity: 0.2;
+  stroke: var(--critical);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.radar-dot {
+  stroke: var(--card-bg);
+  stroke-width: 1.5;
+}
+
+.radar-label {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.radar-dot-expired { fill: var(--expired); }
+.radar-dot-critical { fill: var(--critical); }
+.radar-dot-warning { fill: var(--warning); }
+.radar-dot-ok { fill: var(--ok); }
+
+.radar-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  flex: 1 1 220px;
+}
+
+.radar-dot-inline {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 0.5rem;
+}
+
+.radar-dot-inline.radar-dot-expired { background: var(--expired); }
+.radar-dot-inline.radar-dot-critical { background: var(--critical); }
+.radar-dot-inline.radar-dot-warning { background: var(--warning); }
+.radar-dot-inline.radar-dot-ok { background: var(--ok); }
+
 /* Modal de detalhes do certificado */
 .modal-overlay {
   position: fixed;

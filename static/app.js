@@ -175,6 +175,66 @@ function barChart(container, entries, { max } = {}) {
   });
 }
 
+// Radar hand-rolled em SVG (sem lib de gráfico) — cada eixo é um risco
+// 0-100 (0 = centro = tranquilo, 100 = borda = urgente). Coordenadas vão
+// direto como atributos SVG (cx/cy/points), não style="" inline, então não
+// precisa da CSSOM trick que o barChart usa pro CSP.
+function radarChart(container, axes) {
+  if (axes.length < 3) {
+    container.innerHTML =
+      '<p class="empty">Precisa de pelo menos 3 autoridades certificadoras diferentes pra desenhar o radar.</p>';
+    return;
+  }
+  const size = 280;
+  const center = size / 2;
+  const maxRadius = center - 46;
+  const angleStep = (2 * Math.PI) / axes.length;
+  const pointFor = (index, fraction) => {
+    const angle = -Math.PI / 2 + index * angleStep;
+    return [center + Math.cos(angle) * maxRadius * fraction, center + Math.sin(angle) * maxRadius * fraction];
+  };
+
+  const rings = [0.25, 0.5, 0.75, 1]
+    .map((fraction) => {
+      const points = axes.map((_, i) => pointFor(i, fraction).join(",")).join(" ");
+      return `<polygon points="${points}" class="radar-ring" />`;
+    })
+    .join("");
+
+  const axisLines = axes
+    .map((_, i) => {
+      const [x, y] = pointFor(i, 1);
+      return `<line x1="${center}" y1="${center}" x2="${x}" y2="${y}" class="radar-axis" />`;
+    })
+    .join("");
+
+  const dataPoints = axes.map((axis, i) => pointFor(i, Math.max(0, Math.min(100, axis.value)) / 100));
+  const dataPolygon = dataPoints.map((p) => p.join(",")).join(" ");
+
+  const dots = axes
+    .map((axis, i) => {
+      const [x, y] = dataPoints[i];
+      return `<circle cx="${x}" cy="${y}" r="4" class="radar-dot radar-dot-${axis.risk}" />`;
+    })
+    .join("");
+
+  const labels = axes
+    .map((axis, i) => {
+      const [x, y] = pointFor(i, 1.2);
+      const anchor = Math.abs(x - center) < 4 ? "middle" : x > center ? "start" : "end";
+      return `<text x="${x}" y="${y}" text-anchor="${anchor}" class="radar-label">${escapeHtml(axis.label)}</text>`;
+    })
+    .join("");
+
+  container.innerHTML = `<svg viewBox="0 0 ${size} ${size}" class="radar-svg" role="img" aria-label="Radar de risco por autoridade certificadora">
+    ${rings}
+    ${axisLines}
+    <polygon points="${dataPolygon}" class="radar-fill" />
+    ${dots}
+    ${labels}
+  </svg>`;
+}
+
 function renderOverviewCharts() {
   const liveRecords = currentRecords.filter((record) => record.origin === "live");
   if (!liveRecords.length) {
@@ -542,6 +602,9 @@ const chartManagedCa = document.getElementById("chart-managed-ca");
 const chartManagedEnvironment = document.getElementById("chart-managed-environment");
 const chartManagedKeyalg = document.getElementById("chart-managed-keyalg");
 const chartManagedOrg = document.getElementById("chart-managed-org");
+const riskRadarCard = document.getElementById("risk-radar-card");
+const chartRiskRadar = document.getElementById("chart-risk-radar");
+const riskRadarLegend = document.getElementById("risk-radar-legend");
 
 const ACME_TERMINAL_STATES = new Set(["done", "failed"]);
 let currentAcmeJobId = null;
@@ -750,6 +813,58 @@ function renderManagedCertsOverview() {
   barChart(chartManagedOrg, sortedCounts(orgCounts).slice(0, 8));
 }
 
+// 0 dias (ou já expirado) = risco 100 (borda do radar); 90+ dias = risco 0
+// (centro). 90 dias é a janela de validade típica da Let's Encrypt — não é
+// um número arbitrário, é "toda a vida útil normal de um certificado".
+function riskScoreFromDays(days) {
+  const capped = Math.max(0, Math.min(90, days));
+  return Math.round((1 - capped / 90) * 100);
+}
+
+function riskBucket(days) {
+  if (days < 0) return "expired";
+  if (days < 7) return "critical";
+  if (days < 30) return "warning";
+  return "ok";
+}
+
+// Um eixo por CA — pro certificado MAIS urgente daquela CA (não a média,
+// que esconderia um certificado prestes a vencer atrás de vários saudáveis).
+function computeCaRiskAxes() {
+  const worstDaysByCa = new Map();
+  allCertificates.forEach((cert) => {
+    if (!cert.not_after) return;
+    const label = CA_LABELS[cert.ca] || "Manual/importado";
+    const days = (new Date(cert.not_after) - new Date()) / (1000 * 60 * 60 * 24);
+    if (!worstDaysByCa.has(label) || days < worstDaysByCa.get(label)) {
+      worstDaysByCa.set(label, days);
+    }
+  });
+  return [...worstDaysByCa.entries()].map(([label, worstDays]) => ({
+    label,
+    worstDays: Math.round(worstDays),
+    value: riskScoreFromDays(worstDays),
+    risk: riskBucket(worstDays),
+  }));
+}
+
+function renderRiskRadar() {
+  if (!riskRadarCard) return;
+  const axes = computeCaRiskAxes();
+  if (axes.length < 3) {
+    riskRadarCard.classList.add("hidden");
+    return;
+  }
+  riskRadarCard.classList.remove("hidden");
+  radarChart(chartRiskRadar, axes);
+  riskRadarLegend.innerHTML = axes
+    .map((axis) => {
+      const daysText = axis.worstDays < 0 ? "expirado" : `${axis.worstDays} dias até o próximo vencimento`;
+      return `<li><span class="radar-dot-inline radar-dot-${axis.risk}"></span>${escapeHtml(axis.label)}: ${daysText}</li>`;
+    })
+    .join("");
+}
+
 async function refreshAcmeCertificates() {
   try {
     const response = await fetch("/api/acme/certificates");
@@ -757,6 +872,7 @@ async function refreshAcmeCertificates() {
     allCertificates = await response.json();
     applyCertificateFilters();
     renderManagedCertsOverview();
+    renderRiskRadar();
   } catch {
     // mantém a lista anterior se o fetch falhar
   }
