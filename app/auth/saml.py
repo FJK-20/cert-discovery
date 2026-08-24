@@ -20,6 +20,7 @@ pra criação manual de usuário) — um admin promove depois se for o caso.
 
 from __future__ import annotations
 
+import re
 import secrets
 
 from fastapi import Request
@@ -31,6 +32,10 @@ from app.auth.store import ROLE_LEITOR, SamlIdpConfig, UserAccount, UserStore
 
 _NAMEID_FORMAT = "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
 _EMAIL_CLAIM = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
+_DISPLAYNAME_CLAIM = "http://schemas.microsoft.com/identity/claims/displayname"
+_GIVENNAME_CLAIM = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname"
+_SURNAME_CLAIM = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname"
+_NAME_CLAIM = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
 
 
 def sp_entity_id(base_url: str) -> str:
@@ -119,12 +124,59 @@ def extract_email(auth: OneLogin_Saml2_Auth) -> str | None:
     return values[0] if values else None
 
 
-def provision_or_get_user(store: UserStore, email: str) -> UserAccount:
+def extract_display_name(auth: OneLogin_Saml2_Auth, fallback: str) -> str:
+    """Nome amigável pra mostrar na UI — o NameID/e-mail de convidado B2B
+    do Entra ID vem como `usuario_dominio.com#EXT#@tenant.onmicrosoft.com`
+    (identificador técnico, não algo que se mostra numa badge). Tenta os
+    claims na ordem em que o Entra ID costuma mandá-los: displayname
+    (nem sempre presente) → givenname+surname (default do Entra ID pra
+    qualquer usuário, inclusive convidado) → claim "name" (só se não
+    parecer um UPN/e-mail) → por último, limpa o próprio identificador."""
+    attributes = auth.get_attributes()
+
+    display = attributes.get(_DISPLAYNAME_CLAIM) or []
+    if display and display[0].strip():
+        return display[0].strip()
+
+    given = (attributes.get(_GIVENNAME_CLAIM) or [""])[0].strip()
+    surname = (attributes.get(_SURNAME_CLAIM) or [""])[0].strip()
+    full = " ".join(part for part in (given, surname) if part)
+    if full:
+        return full
+
+    name = attributes.get(_NAME_CLAIM) or []
+    if name and name[0].strip() and "@" not in name[0] and "#" not in name[0]:
+        return name[0].strip()
+
+    return _clean_identifier(fallback)
+
+
+def _clean_identifier(identifier: str) -> str:
+    # Corta em "@" (domínio) e "#" (sufixo "#EXT#" de UPN de convidado B2B
+    # do Entra ID) antes de virar título. UPN de convidado tem outra
+    # armadilha: é "<local>_<domínio-original>" (o "@" do e-mail original
+    # vira "_" nessa mangling) — sem tratar isso, "luanvitorfaustino_gmail.com"
+    # viraria "Luanvitorfaustino Gmail Com" em vez de só "Luanvitorfaustino".
+    local_part = identifier.split("@")[0].split("#")[0]
+    if "_" in local_part:
+        head, _, tail = local_part.partition("_")
+        if "." in tail:  # o que sobra depois do "_" parece um domínio — descarta
+            local_part = head
+    words = [w for w in re.split(r"[.\-]+", local_part) if w]
+    return " ".join(w.capitalize() for w in words) if words else identifier
+
+
+def provision_or_get_user(store: UserStore, email: str, display_name: str = "") -> UserAccount:
     """Acha a conta local pelo e-mail (usado como username pras contas
     SSO) ou provisiona uma nova, sempre como `leitor` — nunca cria um
-    admin sem intervenção humana."""
+    admin sem intervenção humana. Atualiza o nome de exibição a cada
+    login (não só na primeira vez) — se a pessoa mudar de nome no IdP, a
+    UI acompanha sem precisar recriar a conta."""
     existing = store.load(email)
     if existing is not None:
+        if display_name and existing.display_name != display_name:
+            existing.display_name = display_name
+            store.save(existing)
         return existing
 
     account = UserAccount(
@@ -132,6 +184,7 @@ def provision_or_get_user(store: UserStore, email: str) -> UserAccount:
         password_hash=hash_password(secrets.token_urlsafe(32)),
         role=ROLE_LEITOR,
         auth_source="saml",
+        display_name=display_name,
     )
     store.save(account)
     return account

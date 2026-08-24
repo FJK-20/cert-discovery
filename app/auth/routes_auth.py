@@ -141,7 +141,12 @@ async def auth_status(request: Request) -> dict:
 async def me(username: str = Depends(require_session)) -> dict:
     account = user_store.load(username)
     assert account is not None
-    return {"username": account.username, "role": account.role, "mfa_enabled": account.mfa_enabled}
+    return {
+        "username": account.username,
+        "display_name": account.display_name or account.username,
+        "role": account.role,
+        "mfa_enabled": account.mfa_enabled,
+    }
 
 
 @router.post("/setup", status_code=status.HTTP_201_CREATED)
@@ -293,7 +298,12 @@ async def mfa_disable(
 @router.get("/users")
 async def list_users(_viewer: str = Depends(require_auditor)) -> list[dict]:
     return [
-        {"username": u.username, "role": u.role, "mfa_enabled": u.mfa_enabled}
+        {
+            "username": u.username,
+            "display_name": u.display_name,
+            "role": u.role,
+            "mfa_enabled": u.mfa_enabled,
+        }
         for u in user_store.list_all()
     ]
 

@@ -83,6 +83,57 @@ def test_extract_email_returns_none_when_nothing_available():
     assert saml.extract_email(auth) is None
 
 
+def test_extract_display_name_prefers_displayname_claim():
+    auth = MagicMock()
+    auth.get_attributes.return_value = {saml._DISPLAYNAME_CLAIM: ["Luan Faustino"]}
+    assert saml.extract_display_name(auth, fallback="irrelevant@example.com") == "Luan Faustino"
+
+
+def test_extract_display_name_falls_back_to_given_and_surname():
+    auth = MagicMock()
+    auth.get_attributes.return_value = {
+        saml._GIVENNAME_CLAIM: ["Luan"],
+        saml._SURNAME_CLAIM: ["Faustino"],
+    }
+    assert saml.extract_display_name(auth, fallback="irrelevant@example.com") == "Luan Faustino"
+
+
+def test_extract_display_name_ignores_name_claim_that_looks_like_upn():
+    auth = MagicMock()
+    auth.get_attributes.return_value = {
+        saml._NAME_CLAIM: ["person_gmail.com#EXT#@tenant.onmicrosoft.com"]
+    }
+    # claim "name" descartado por parecer UPN — cai pro fallback limpo
+    assert (
+        saml.extract_display_name(auth, fallback="person_gmail.com#EXT#@tenant.onmicrosoft.com")
+        == "Person"
+    )
+
+
+def test_extract_display_name_cleans_up_guest_upn_fallback_when_no_claims_available():
+    # Reproduz o caso real: convidado B2B do Entra ID sem nenhum claim de
+    # nome configurado — só sobra o NameID/e-mail mangled de convidado.
+    auth = MagicMock()
+    auth.get_attributes.return_value = {}
+    fallback = "luanvitorfaustino_gmail.com#EXT#@luanvitorfaustinogmail.onmicrosoft.com"
+    assert saml.extract_display_name(auth, fallback=fallback) == "Luanvitorfaustino"
+
+
+def test_provision_or_get_user_saves_display_name(tmp_path):
+    store = UserStore(tmp_path)
+    account = saml.provision_or_get_user(store, "new.person@example.com", "New Person")
+    assert account.display_name == "New Person"
+    assert store.load("new.person@example.com").display_name == "New Person"
+
+
+def test_provision_or_get_user_updates_display_name_on_repeat_login(tmp_path):
+    store = UserStore(tmp_path)
+    saml.provision_or_get_user(store, "person@example.com", "Old Name")
+    updated = saml.provision_or_get_user(store, "person@example.com", "New Name")
+    assert updated.display_name == "New Name"
+    assert store.load("person@example.com").display_name == "New Name"
+
+
 def test_sp_entity_id_and_acs_url_are_derived_from_base_url():
     base = "https://certmanager.example.com"
     assert saml.sp_entity_id(base) == "https://certmanager.example.com/api/auth/saml/metadata"

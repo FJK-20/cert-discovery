@@ -127,7 +127,8 @@ async def saml_acs(request: Request):
             status_code=401, detail="A resposta do IdP não trouxe um e-mail identificável."
         )
 
-    account = saml.provision_or_get_user(user_store, email)
+    display_name = saml.extract_display_name(auth, fallback=email)
+    account = saml.provision_or_get_user(user_store, email, display_name)
     if account.auth_source != "saml":
         # E-mail já existe como conta local (usuário/senha) — não deixa o
         # SSO sequestrar uma conta que a pessoa não provisionou por SSO.

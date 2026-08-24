@@ -210,6 +210,7 @@ def test_first_setup_grants_admin_role(tmp_path, monkeypatch):
     client.post("/api/auth/setup", json=ADMIN)
     assert client.get("/api/auth/me").json() == {
         "username": "admin",
+        "display_name": "admin",
         "role": "admin",
         "mfa_enabled": False,
     }
@@ -226,8 +227,10 @@ def test_admin_can_create_and_list_users(tmp_path, monkeypatch):
     assert created.status_code == 201
 
     users = client.get("/api/auth/users").json()
-    assert {"username": "admin", "role": "admin", "mfa_enabled": False} in users
-    assert {"username": "viewer", "role": "leitor", "mfa_enabled": False} in users
+    admin_row = {"username": "admin", "display_name": "", "role": "admin", "mfa_enabled": False}
+    viewer_row = {"username": "viewer", "display_name": "", "role": "leitor", "mfa_enabled": False}
+    assert admin_row in users
+    assert viewer_row in users
 
 
 def test_cannot_create_user_with_invalid_role(tmp_path, monkeypatch):
@@ -385,7 +388,13 @@ def test_admin_can_change_a_users_role(tmp_path, monkeypatch):
     response = client.patch("/api/auth/users/viewer/role", json={"role": "operador"})
     assert response.status_code == 200
     users = client.get("/api/auth/users").json()
-    assert {"username": "viewer", "role": "operador", "mfa_enabled": False} in users
+    viewer_row = {
+        "username": "viewer",
+        "display_name": "",
+        "role": "operador",
+        "mfa_enabled": False,
+    }
+    assert viewer_row in users
 
 
 def test_cannot_change_role_to_invalid_value(tmp_path, monkeypatch):
@@ -412,7 +421,7 @@ def test_cannot_demote_last_admin(tmp_path, monkeypatch):
     response = client.patch("/api/auth/users/admin/role", json={"role": "leitor"})
     assert response.status_code == 400
     users = client.get("/api/auth/users").json()
-    assert {"username": "admin", "role": "admin", "mfa_enabled": False} in users
+    assert {"username": "admin", "display_name": "", "role": "admin", "mfa_enabled": False} in users
 
 
 def test_can_demote_an_admin_when_another_admin_exists(tmp_path, monkeypatch):

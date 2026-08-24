@@ -63,6 +63,11 @@ class UserAccount:
     # gerado na criação, nunca combina com nada) — login por senha pra
     # essas contas é sempre rejeitado, mesmo que alguém tente string vazia.
     auth_source: str = "local"
+    # Nome amigável pra exibir na UI (extraído dos claims do IdP em contas
+    # SSO — ver saml.extract_display_name). Vazio pra conta local, onde o
+    # username já costuma ser curto o bastante pra mostrar direto; "" faz
+    # a UI cair de volta pro username.
+    display_name: str = ""
 
 
 @dataclass

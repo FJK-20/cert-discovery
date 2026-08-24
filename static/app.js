@@ -1545,7 +1545,7 @@ async function refreshCurrentUser() {
     const me = await response.json();
     currentUserRole = me.role;
     window.__currentUsername = me.username;
-    currentUserBadge.innerHTML = `${escapeHtml(me.username)} · <strong>${ROLE_LABELS[me.role] || escapeHtml(me.role)}</strong>`;
+    currentUserBadge.innerHTML = `${escapeHtml(me.display_name || me.username)} · <strong>${ROLE_LABELS[me.role] || escapeHtml(me.role)}</strong>`;
     currentUserBadge.classList.remove("hidden");
     applyRoleVisibility();
     if (currentUserRole === "admin" || currentUserRole === "auditor") {
@@ -1591,8 +1591,11 @@ async function refreshUsers() {
                 ).join("")}
               </select>`
             : ROLE_LABELS[user.role] || escapeHtml(user.role);
+        const usernameCell = user.display_name
+          ? `${escapeHtml(user.username)} <span class="hint">(${escapeHtml(user.display_name)})</span>`
+          : escapeHtml(user.username);
         return `<tr>
-          <td>${escapeHtml(user.username)}</td>
+          <td>${usernameCell}</td>
           <td>${roleCell}</td>
           <td>${mfaLabel}</td>
           <td>${deleteBtn}</td>
