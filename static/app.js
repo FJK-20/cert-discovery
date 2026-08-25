@@ -314,12 +314,18 @@ form.addEventListener("submit", async (event) => {
     .map((line) => line.trim())
     .filter(Boolean);
   const consent = document.getElementById("consent").checked;
+  const enumerateSubdomains = document.getElementById("enumerate-subdomains").checked;
 
   try {
     const response = await fetch("/api/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domain, manual_hosts: manualHosts, consent }),
+      body: JSON.stringify({
+        domain,
+        manual_hosts: manualHosts,
+        consent,
+        enumerate_subdomains: enumerateSubdomains,
+      }),
     });
 
     if (response.status === 401) {
@@ -778,7 +784,11 @@ function renderCertificateRow(cert) {
 
 const certDetailModal = document.getElementById("cert-detail-modal");
 
+let currentCertDetailId = null;
+
 function openCertDetailModal(cert) {
+  currentCertDetailId = cert.id;
+  document.getElementById("cert-detail-delete-error").classList.add("hidden");
   const status = certStatus(cert);
   const daysLeft = cert.not_after
     ? Math.round((new Date(cert.not_after) - new Date()) / (1000 * 60 * 60 * 24))
@@ -840,6 +850,30 @@ function closeCertDetailModal() {
 document.getElementById("cert-detail-modal-close").addEventListener("click", closeCertDetailModal);
 certDetailModal.addEventListener("click", (event) => {
   if (event.target === certDetailModal) closeCertDetailModal();
+});
+
+document.getElementById("cert-detail-delete-btn").addEventListener("click", async () => {
+  if (!currentCertDetailId) return;
+  const cert = allCertificates.find((c) => c.id === currentCertDetailId);
+  const domainLabel = cert ? cert.domain : "este certificado";
+  if (!confirm(`Excluir o certificado de "${domainLabel}"? Isso não pode ser desfeito.`)) return;
+
+  const errorEl = document.getElementById("cert-detail-delete-error");
+  errorEl.classList.add("hidden");
+  try {
+    const response = await fetch(`/api/acme/certificates/${encodeURIComponent(currentCertDetailId)}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || `Erro ${response.status}`);
+    }
+    closeCertDetailModal();
+    await refreshAcmeCertificates();
+  } catch (err) {
+    errorEl.textContent = err.message || "Falha ao excluir o certificado.";
+    errorEl.classList.remove("hidden");
+  }
 });
 
 function applyCertificateFilters() {

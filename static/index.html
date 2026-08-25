@@ -203,6 +203,17 @@
             Use isso se o serviço de Certificate Transparency estiver instável ou
             se você já sabe quais hosts quer verificar.
           </p>
+
+          <label class="consent">
+            <input id="enumerate-subdomains" name="enumerate_subdomains" type="checkbox" />
+            Também testar subdomínios comuns via DNS (www, api, admin, mail...)
+          </label>
+          <p class="hint">
+            Diferente do resto da busca (só consulta CT log + handshake TLS
+            padrão), isto tenta ativamente resolver uma lista curta de nomes
+            comuns — só entram no inventário os que respondem de verdade.
+            Mesma autorização abaixo cobre isso.
+          </p>
         </details>
 
         <label class="consent">
@@ -535,7 +546,9 @@
         <div class="modal-actions">
           <a id="cert-detail-download-cert" class="button-link">Baixar certificado</a>
           <a id="cert-detail-download-key" class="button-link" data-requires-role="admin,operador">Baixar chave privada</a>
+          <button type="button" id="cert-detail-delete-btn" class="button-link" data-requires-role="admin,operador">Excluir certificado</button>
         </div>
+        <p id="cert-detail-delete-error" class="hidden error-banner"></p>
       </div>
     </div>
 

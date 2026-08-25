@@ -77,14 +77,26 @@ achado:
   host que não resolveu DNS, ou que recusou o handshake). Aparece no
   inventário para visibilidade, mas não é tratado como certeza.
 
+A busca no CT log (`%.dominio`) já cobre subdomínio de qualquer
+profundidade — `app.dominio.com`, `a.b.dominio.com`, etc. — sem precisar de
+nenhuma opção extra. O que ela não cobre são nomes que **nunca** tiveram
+certificado emitido (por isso nunca apareceriam num log de CT): pra esses,
+existe o checkbox opcional "testar subdomínios comuns" (`app/discovery/
+subdomain_wordlist.py`) — tenta resolver uma lista curta de prefixos comuns
+(`www`, `api`, `admin`, `mail`...) e só adiciona ao inventário os que
+respondem de verdade.
+
 ## ⚠️ Uso responsável
 
 Use apenas em domínios que você possui ou está explicitamente autorizado a
-testar. A ferramenta só consulta dados públicos (Certificate Transparency) e
-realiza handshakes TLS padrão — o mesmo que qualquer navegador faz ao abrir
-um site — mas ainda assim é um scanner, e como tal deve ser usado com
-autorização e bom senso. O formulário exige uma confirmação explícita de
-autorização antes de iniciar um scan.
+testar. Por padrão, a ferramenta só consulta dados públicos (Certificate
+Transparency) e realiza handshakes TLS padrão — o mesmo que qualquer
+navegador faz ao abrir um site. Opcionalmente (checkbox "Avançado" na busca,
+desligado por padrão), também é possível testar resolução DNS de uma lista
+curta de subdomínios comuns (`www`, `api`, `admin`...) — isso é
+reconhecimento ativo, diferente do resto da busca, e usa a mesma
+confirmação de autorização exigida pra qualquer busca. O formulário exige
+essa confirmação explícita antes de iniciar, com ou sem a opção avançada.
 
 ## Instalação e execução
 

@@ -201,6 +201,13 @@ class AcmeStore:
         raw["private_key_pem"] = _maybe_decrypt(self._box, raw["private_key_pem"])
         return IssuedCertificate(**raw)
 
+    def delete_certificate(self, cert_id: str) -> bool:
+        path = self._certs_dir / f"{cert_id}.json"
+        if not path.exists():
+            return False
+        path.unlink()
+        return True
+
     def list_certificates(self) -> list[IssuedCertificate]:
         if not self._certs_dir.exists():
             return []

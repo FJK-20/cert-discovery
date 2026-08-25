@@ -29,7 +29,7 @@ class _FakeJob:
     id = "fake-job-id"
 
 
-async def _fake_create(domain, manual_hosts=None):
+async def _fake_create(domain, manual_hosts=None, *, enumerate_subdomains=False):
     return _FakeJob()
 
 

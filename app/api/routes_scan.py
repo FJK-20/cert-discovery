@@ -28,6 +28,7 @@ class ScanRequest(BaseModel):
     domain: str = Field(..., min_length=1, max_length=253)
     manual_hosts: list[str] = Field(default_factory=list, max_length=500)
     consent: bool = False
+    enumerate_subdomains: bool = False
 
 
 def _client_key(request: Request) -> str:
@@ -83,8 +84,11 @@ async def create_scan(
     if not domain or "/" in domain or " " in domain:
         raise HTTPException(status_code=400, detail="Domínio inválido.")
 
-    job = await job_manager.create(domain, payload.manual_hosts)
-    audit_log.record(username=username, action="scan_started", detail=domain)
+    job = await job_manager.create(
+        domain, payload.manual_hosts, enumerate_subdomains=payload.enumerate_subdomains
+    )
+    detail = domain + (" (+ subdomínios comuns)" if payload.enumerate_subdomains else "")
+    audit_log.record(username=username, action="scan_started", detail=detail)
     return {"job_id": job.id}
 
 

@@ -17,7 +17,7 @@ import time
 import httpx
 
 from app.core.config import settings
-from app.discovery import ctlogs
+from app.discovery import ctlogs, subdomain_wordlist
 from app.discovery.dns_resolver import resolve_ips, to_idna
 from app.discovery.tls_probe import ProbeError, probe_host
 from app.domain.inventory import build_inventory
@@ -33,12 +33,18 @@ class ScanJobManager:
         self._jobs: dict[str, ScanJob] = {}
         self._history = history
 
-    async def create(self, domain: str, manual_hosts: list[str] | None = None) -> ScanJob:
+    async def create(
+        self,
+        domain: str,
+        manual_hosts: list[str] | None = None,
+        *,
+        enumerate_subdomains: bool = False,
+    ) -> ScanJob:
         self._evict_expired()
         job = ScanJob(domain=domain)
         self._jobs[job.id] = job
         self._history.record(job)
-        asyncio.create_task(self._run(job, manual_hosts or []))
+        asyncio.create_task(self._run(job, manual_hosts or [], enumerate_subdomains))
         return job
 
     def get(self, job_id: str) -> ScanJob | None:
@@ -50,10 +56,13 @@ class ScanJobManager:
         for jid in expired:
             self._jobs.pop(jid, None)
 
-    async def _run(self, job: ScanJob, manual_hosts: list[str]) -> None:
+    async def _run(
+        self, job: ScanJob, manual_hosts: list[str], enumerate_subdomains: bool = False
+    ) -> None:
         try:
             await asyncio.wait_for(
-                self._pipeline(job, manual_hosts), timeout=settings.job_total_budget_seconds
+                self._pipeline(job, manual_hosts, enumerate_subdomains),
+                timeout=settings.job_total_budget_seconds,
             )
             if job.state is not JobState.FAILED:
                 job.state = JobState.DONE
@@ -68,7 +77,9 @@ class ScanJobManager:
         finally:
             self._history.record(job)
 
-    async def _pipeline(self, job: ScanJob, manual_hosts: list[str]) -> None:
+    async def _pipeline(
+        self, job: ScanJob, manual_hosts: list[str], enumerate_subdomains: bool = False
+    ) -> None:
         job.state = JobState.DISCOVERING_HOSTS
         job.progress_message = "Consultando Certificate Transparency logs..."
 
@@ -87,6 +98,15 @@ class ScanJobManager:
         apex = ctlogs.normalize_hostname(job.domain)
         if apex:
             hostnames.add(apex)
+
+        if enumerate_subdomains:
+            job.progress_message = "Testando subdomínios comuns via DNS..."
+            wordlist_hosts = await subdomain_wordlist.discover_hosts(
+                job.domain,
+                timeout=settings.dns_timeout_seconds,
+                max_concurrency=settings.max_concurrent_probes,
+            )
+            hostnames |= wordlist_hosts
 
         wildcard_hosts = {h for h in hostnames if h.startswith("*.")}
         candidate_hosts = sorted(hostnames - wildcard_hosts)[: settings.max_hosts_per_scan]

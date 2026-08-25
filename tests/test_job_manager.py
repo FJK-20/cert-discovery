@@ -59,6 +59,47 @@ def test_pipeline_caps_hosts_after_dedup(monkeypatch, tmp_path):
     assert len(job.records) == 2
 
 
+def test_enumerate_subdomains_off_by_default_does_not_call_wordlist(monkeypatch, tmp_path):
+    _patch_settings(monkeypatch, max_hosts_per_scan=10, max_concurrent_probes=10)
+    monkeypatch.setattr("app.jobs.manager.ctlogs.fetch_hostnames", _ct_unavailable)
+    monkeypatch.setattr("app.jobs.manager.resolve_ips", _never_resolves)
+
+    called = False
+
+    async def spy_discover_hosts(domain, *, timeout, max_concurrency):
+        nonlocal called
+        called = True
+        return set()
+
+    monkeypatch.setattr("app.jobs.manager.subdomain_wordlist.discover_hosts", spy_discover_hosts)
+
+    manager = ScanJobManager(history=ScanHistoryStore(tmp_path))
+    job = ScanJob(domain="example.com")
+    asyncio.run(manager._pipeline(job, [], enumerate_subdomains=False))
+
+    assert called is False
+
+
+def test_enumerate_subdomains_merges_wordlist_hits_into_candidates(monkeypatch, tmp_path):
+    _patch_settings(monkeypatch, max_hosts_per_scan=10, max_concurrent_probes=10)
+    monkeypatch.setattr("app.jobs.manager.ctlogs.fetch_hostnames", _ct_unavailable)
+    monkeypatch.setattr("app.jobs.manager.resolve_ips", _never_resolves)
+
+    async def fake_discover_hosts(domain, *, timeout, max_concurrency):
+        assert domain == "example.com"
+        return {"www.example.com", "api.example.com"}
+
+    monkeypatch.setattr("app.jobs.manager.subdomain_wordlist.discover_hosts", fake_discover_hosts)
+
+    manager = ScanJobManager(history=ScanHistoryStore(tmp_path))
+    job = ScanJob(domain="example.com")
+    asyncio.run(manager._pipeline(job, [], enumerate_subdomains=True))
+
+    hosts_scanned = {r.host for r in job.records}
+    assert "www.example.com" in hosts_scanned
+    assert "api.example.com" in hosts_scanned
+
+
 def test_evict_expired_removes_only_old_jobs(tmp_path):
     manager = ScanJobManager(history=ScanHistoryStore(tmp_path))
     fresh = ScanJob(domain="fresh.example.com")

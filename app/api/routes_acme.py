@@ -379,3 +379,15 @@ async def download_private_key(cert_id: str, _viewer: str = Depends(require_oper
         media_type="application/x-pem-file",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+@router.delete("/certificates/{cert_id}")
+async def delete_certificate(cert_id: str, username: str = Depends(require_operator)) -> dict:
+    cert = acme_store.load_certificate(cert_id)
+    if cert is None:
+        raise HTTPException(status_code=404, detail="Certificado não encontrado.")
+    acme_store.delete_certificate(cert_id)
+    audit_log.record(
+        username=username, action="certificate_deleted", detail=f"{cert.domain} ({cert_id})"
+    )
+    return {"ok": True}
