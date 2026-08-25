@@ -263,7 +263,7 @@
       </div>
       <p class="hint">Clique numa linha para ver todos os detalhes do certificado.</p>
       <div class="table-wrapper">
-        <table id="results-table">
+        <table id="results-table" class="responsive-table">
           <thead>
             <tr>
               <th>Status</th>
@@ -363,8 +363,8 @@
         <h3 id="acme-dns-instr-title">Crie este registro no DNS do seu domínio</h3>
         <dl class="dns-record-box">
           <dt>Tipo</dt><dd id="acme-dns-instr-type">TXT</dd>
-          <dt>Nome</dt><dd><code id="acme-dns-instr-name"></code> <button type="button" class="copy-btn" data-copy-target="acme-dns-instr-name">copiar</button></dd>
-          <dt>Valor</dt><dd><code id="acme-dns-instr-value"></code> <button type="button" class="copy-btn" data-copy-target="acme-dns-instr-value">copiar</button></dd>
+          <dt>Nome</dt><dd><code id="acme-dns-instr-name" class="mono"></code> <button type="button" class="copy-btn" data-copy-target="acme-dns-instr-name">copiar</button></dd>
+          <dt>Valor</dt><dd><code id="acme-dns-instr-value" class="mono"></code> <button type="button" class="copy-btn" data-copy-target="acme-dns-instr-value">copiar</button></dd>
         </dl>
         <p id="acme-dns-instr-hint" class="hint">
           Depois de criar o registro, clique abaixo — verificamos se já
@@ -583,7 +583,7 @@
         avisa por notificação em vez de continuar tentando.
       </p>
       <div class="table-wrapper">
-        <table id="renewal-history-table">
+        <table id="renewal-history-table" class="responsive-table">
           <thead>
             <tr>
               <th>Domínio</th>
@@ -612,7 +612,7 @@
         só admin cadastra/edita/remove.
       </p>
       <div class="table-wrapper">
-        <table id="orgs-table">
+        <table id="orgs-table" class="responsive-table">
           <thead>
             <tr>
               <th>Nome</th>
@@ -673,7 +673,7 @@
         nome + descrição.
       </p>
       <div class="table-wrapper">
-        <table id="systems-table">
+        <table id="systems-table" class="responsive-table">
           <thead>
             <tr>
               <th>Nome</th>
@@ -716,7 +716,7 @@
         iniciativa com prazo) — mesmo formato de Sistemas.
       </p>
       <div class="table-wrapper">
-        <table id="projects-table">
+        <table id="projects-table" class="responsive-table">
           <thead>
             <tr>
               <th>Nome</th>
@@ -1046,7 +1046,7 @@
         inventário/certificados/histórico.
       </p>
       <div class="table-wrapper">
-        <table id="users-table">
+        <table id="users-table" class="responsive-table">
           <thead>
             <tr>
               <th>Usuário</th>
@@ -1097,7 +1097,7 @@
         momento em que é criada — perdeu, revoga e cria outra.
       </p>
       <div class="table-wrapper">
-        <table id="api-keys-table">
+        <table id="api-keys-table" class="responsive-table">
           <thead>
             <tr>
               <th>Nome</th>
@@ -1147,7 +1147,7 @@
       <button type="button" id="audit-log-verify-btn">Verificar integridade</button>
       <p id="audit-log-verify-message" class="hint"></p>
       <div class="table-wrapper">
-        <table id="audit-log-table">
+        <table id="audit-log-table" class="responsive-table">
           <thead>
             <tr>
               <th>Quando</th>

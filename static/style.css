@@ -905,6 +905,22 @@ code.mono {
   word-break: break-all;
 }
 
+/* Achado numa varredura de qualidade: <code class="mono"> inline seguido
+   de um <button class="copy-btn"> — em telas estreitas, o valor longo
+   (URL do SP, valor do desafio DNS) quebrava no meio de qualquer
+   caractere e o botão "copiar" ficava espremido colado no fragmento
+   quebrado. Cada um na sua própria linha resolve os dois problemas de
+   uma vez, em qualquer largura de tela — não só no mobile. width:100%
+   além de display:block porque um dos usos (.dns-record-box dd) é flex
+   com wrap — só display:block não empurra o botão pra próxima linha
+   dentro de um container flex, precisa forçar a base do item pra 100%.
+*/
+code.mono {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.35rem;
+}
+
 .modal-actions {
   display: flex;
   flex-wrap: wrap;
@@ -922,21 +938,21 @@ code.mono {
   cursor: pointer;
 }
 
-#results-table tbody tr:hover {
-  background: var(--bg);
-}
-
-/* Tabela de resultados como pilha de cartões abaixo de 640px: rolar de
-   lado pra ler dado tabular é um anti-padrão mobile bem documentado (some
-   coluna do campo de visão, quebra o fluxo de leitura). Nenhuma coluna é
-   escondida — cada <td> vira um par rótulo/valor via data-label. */
+/* Toda tabela de dados vira pilha de cartões abaixo de 640px, não só o
+   Inventário — rolar de lado pra ler dado tabular é um anti-padrão mobile
+   bem documentado (some coluna do campo de visão, quebra o fluxo de
+   leitura). Nenhuma coluna é escondida — cada <td> vira um par
+   rótulo/valor via data-label. Achado numa varredura de qualidade: só
+   #results-table tinha esse tratamento; as outras 7 tabelas do app
+   (histórico de renovação, cadastros, usuários, API keys, log de
+   auditoria) vazavam da viewport no mobile até essa correção. */
 @media (max-width: 640px) {
   /* Cabeçalho escondido visualmente (padrão "visually-hidden", mantém
      acessível a leitor de tela) mas ainda precisa sair do modo de layout
      de tabela — senão os <th>, com display:table-cell por padrão, tentam
      se posicionar como se ainda estivessem numa linha de tabela dentro de
      um container de 1px, e "vazam" para fora da viewport. */
-  #results-table thead {
+  .responsive-table thead {
     position: absolute;
     display: block;
     width: 1px;
@@ -945,27 +961,27 @@ code.mono {
     clip: rect(0 0 0 0);
   }
 
-  #results-table thead tr,
-  #results-table thead th {
+  .responsive-table thead tr,
+  .responsive-table thead th {
     display: block;
   }
 
-  #results-table,
-  #results-table tbody,
-  #results-table tr,
-  #results-table td {
+  .responsive-table,
+  .responsive-table tbody,
+  .responsive-table tr,
+  .responsive-table td {
     display: block;
     width: 100%;
   }
 
-  #results-table tr {
+  .responsive-table tr {
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 0.75rem 0.9rem;
     margin-bottom: 0.75rem;
   }
 
-  #results-table td {
+  .responsive-table td {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
@@ -975,11 +991,11 @@ code.mono {
     padding: 0.45rem 0;
   }
 
-  #results-table td:last-child {
+  .responsive-table td:last-child {
     border-bottom: none;
   }
 
-  #results-table td::before {
+  .responsive-table td::before {
     content: attr(data-label);
     font-weight: 600;
     font-size: 0.78rem;
@@ -987,8 +1003,35 @@ code.mono {
     flex-shrink: 0;
   }
 
-  #results-table td.note-cell {
+  /* <td> sem data-label (coluna de ações, sem cabeçalho) não deveria
+     mostrar um rótulo vazio ocupando espaço no par flex. */
+  .responsive-table td[data-label=""] {
+    justify-content: flex-end;
+  }
+
+  .responsive-table td.note-cell {
     max-width: none;
+  }
+
+  /* Botão de ação de linha (editar/remover/revogar) é o motivo da célula
+     existir, não um link solto em meio a texto corrido — no toque,
+     merece o alvo ≥44px de sempre (Apple HIG / Material Design), que o
+     .button-link genérico não tem por ser reusado também em texto
+     corrido (ver comentário em .button-link). */
+  .responsive-table td button.button-link {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* Mesmo raciocínio pro botão "Detalhes" dos cartões de Certificados e
+     pros links de exportar — são ações, não texto corrido. */
+  .cert-detail-btn,
+  #export-csv,
+  #export-json {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
   }
 }
 
@@ -1226,6 +1269,21 @@ code.mono {
   color: var(--muted);
   font-size: 0.82rem;
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  /* justify-content: space-between força domínio e metadados na mesma
+     linha — numa tela estreita isso espreme o domínio (quebra no meio
+     de uma palavra) e ainda estoura os metadados (nowrap) pra fora do
+     cartão. Empilha os dois em vez de tentar caber lado a lado. */
+  .scan-history-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .scan-history-meta {
+    white-space: normal;
+  }
 }
 
 .badge-running { background: var(--badge-warning); }

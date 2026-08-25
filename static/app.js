@@ -1594,14 +1594,14 @@ async function refreshRenewalHistory() {
         const stateLabel = RENEWAL_STATE_LABELS[attempt.state] || attempt.state;
         const triggerLabel = RENEWAL_TRIGGER_LABELS[attempt.trigger_source] || attempt.trigger_source;
         return `<tr>
-          <td>${escapeHtml(attempt.domain)}</td>
-          <td>${escapeHtml(attempt.environment)}</td>
-          <td>${escapeHtml(attempt.dns_mode || "manual (CSR)")}</td>
-          <td>${escapeHtml(triggerLabel)}</td>
-          <td>${attempt.attempt_number}</td>
-          <td><span class="badge badge-${attempt.state}">${escapeHtml(stateLabel)}</span></td>
-          <td>${formatDateTime(attempt.created_at)}</td>
-          <td class="note-cell">${escapeHtml(attempt.error || "—")}</td>
+          <td data-label="Domínio">${escapeHtml(attempt.domain)}</td>
+          <td data-label="Ambiente">${escapeHtml(attempt.environment)}</td>
+          <td data-label="Modo">${escapeHtml(attempt.dns_mode || "manual (CSR)")}</td>
+          <td data-label="Gatilho">${escapeHtml(triggerLabel)}</td>
+          <td data-label="Tentativa">${attempt.attempt_number}</td>
+          <td data-label="Estado"><span class="badge badge-${attempt.state}">${escapeHtml(stateLabel)}</span></td>
+          <td data-label="Quando">${formatDateTime(attempt.created_at)}</td>
+          <td data-label="Erro" class="note-cell">${escapeHtml(attempt.error || "—")}</td>
         </tr>`;
       })
       .join("");
@@ -1639,6 +1639,29 @@ async function loadHistoricalScan(jobId) {
   }
 }
 
+// Achado numa varredura de qualidade: ao logar, Dashboard e Inventário
+// ficavam vazios ("Nenhum dado ainda") mesmo com um scan recente sentado
+// bem ali em "Scans recentes" — só populavam depois de clicar nele à mão.
+// Silenciosamente carrega o mais recente (se existir) no boot da página,
+// sem forçar navegação pra #inventario (diferente de loadHistoricalScan,
+// que a pessoa aciona de propósito) — só preenche o estado, cada tela
+// mostra o que já teria pra mostrar quando a pessoa chegar nela.
+async function autoLoadMostRecentScan() {
+  try {
+    const historyResponse = await fetch("/api/scan/history");
+    if (!historyResponse.ok) return;
+    const scans = await historyResponse.json();
+    if (!scans.length) return;
+    const snapshotResponse = await fetch(`/api/scan/${scans[0].id}`);
+    if (!snapshotResponse.ok) return;
+    const snapshot = await snapshotResponse.json();
+    finish(snapshot, scans[0].id);
+  } catch {
+    // silencioso — pior caso é continuar com "nenhum dado ainda" até a
+    // pessoa rodar ou reabrir um scan manualmente
+  }
+}
+
 async function refreshScanHistory() {
   try {
     const response = await fetch("/api/scan/history");
@@ -1669,6 +1692,7 @@ scanHistoryList.addEventListener("click", (event) => {
 });
 
 refreshScanHistory();
+autoLoadMostRecentScan();
 
 // Papéis (Fase 4-5): quatro papéis sem hierarquia entre operador/auditor
 // (ver app/auth/store.py). Todo elemento marcado data-requires-role="a,b"
@@ -1747,10 +1771,10 @@ async function refreshUsers() {
           ? `${escapeHtml(user.username)} <span class="hint">(${escapeHtml(user.display_name)})</span>`
           : escapeHtml(user.username);
         return `<tr>
-          <td>${usernameCell}</td>
-          <td>${roleCell}</td>
-          <td>${mfaLabel}</td>
-          <td>${deleteBtn}</td>
+          <td data-label="Usuário">${usernameCell}</td>
+          <td data-label="Papel">${roleCell}</td>
+          <td data-label="MFA">${mfaLabel}</td>
+          <td data-label="">${deleteBtn}</td>
         </tr>`;
       })
       .join("");
@@ -1854,11 +1878,11 @@ async function refreshApiKeys() {
     apiKeysBody.innerHTML = keys
       .map(
         (key) => `<tr>
-          <td>${escapeHtml(key.name)}</td>
-          <td>${ROLE_LABELS[key.role] || escapeHtml(key.role)}</td>
-          <td>${escapeHtml(key.created_by || "—")}</td>
-          <td>${key.last_used_at ? formatDateTime(key.last_used_at) : "nunca usada"}</td>
-          <td><button type="button" class="button-link api-key-revoke-btn" data-requires-role="admin" data-key-id="${escapeHtml(key.id)}">revogar</button></td>
+          <td data-label="Nome">${escapeHtml(key.name)}</td>
+          <td data-label="Papel">${ROLE_LABELS[key.role] || escapeHtml(key.role)}</td>
+          <td data-label="Criada por">${escapeHtml(key.created_by || "—")}</td>
+          <td data-label="Último uso">${key.last_used_at ? formatDateTime(key.last_used_at) : "nunca usada"}</td>
+          <td data-label=""><button type="button" class="button-link api-key-revoke-btn" data-requires-role="admin" data-key-id="${escapeHtml(key.id)}">revogar</button></td>
         </tr>`
       )
       .join("");
@@ -1993,10 +2017,10 @@ async function refreshAuditLog() {
     auditLogBody.innerHTML = entries
       .map(
         (entry) => `<tr>
-          <td>${formatDateTime(entry.created_at)}</td>
-          <td>${escapeHtml(entry.username || "sistema")}</td>
-          <td>${escapeHtml(entry.action)}</td>
-          <td class="note-cell">${escapeHtml(entry.detail || "—")}</td>
+          <td data-label="Quando">${formatDateTime(entry.created_at)}</td>
+          <td data-label="Usuário">${escapeHtml(entry.username || "sistema")}</td>
+          <td data-label="Ação">${escapeHtml(entry.action)}</td>
+          <td data-label="Detalhe" class="note-cell">${escapeHtml(entry.detail || "—")}</td>
         </tr>`
       )
       .join("");
@@ -2084,12 +2108,12 @@ async function refreshOrganizations() {
     orgsBody.innerHTML = orgs
       .map(
         (org) => `<tr>
-          <td>${escapeHtml(org.name)}</td>
-          <td>${escapeHtml(org.unit || "—")}</td>
-          <td>${escapeHtml([org.city, org.state].filter(Boolean).join("/") || "—")}</td>
-          <td>${escapeHtml(org.category || "—")}</td>
-          <td>${org.status === "active" ? "Ativo" : "Inativo"}</td>
-          <td>
+          <td data-label="Nome">${escapeHtml(org.name)}</td>
+          <td data-label="Unidade">${escapeHtml(org.unit || "—")}</td>
+          <td data-label="Cidade/UF">${escapeHtml([org.city, org.state].filter(Boolean).join("/") || "—")}</td>
+          <td data-label="Categoria">${escapeHtml(org.category || "—")}</td>
+          <td data-label="Status">${org.status === "active" ? "Ativo" : "Inativo"}</td>
+          <td data-label="">
             <button type="button" class="button-link org-edit-btn" data-requires-role="admin" data-id="${escapeHtml(org.id)}">editar</button>
             <button type="button" class="button-link org-delete-btn" data-requires-role="admin" data-id="${escapeHtml(org.id)}" data-name="${escapeHtml(org.name)}">remover</button>
           </td>
@@ -2220,10 +2244,10 @@ function setupCatalogCrud(kind, endpoint) {
       body.innerHTML = items
         .map(
           (item) => `<tr>
-            <td>${escapeHtml(item.name)}</td>
-            <td>${escapeHtml(item.description || "—")}</td>
-            <td>${item.status === "active" ? "Ativo" : "Inativo"}</td>
-            <td>
+            <td data-label="Nome">${escapeHtml(item.name)}</td>
+            <td data-label="Descrição">${escapeHtml(item.description || "—")}</td>
+            <td data-label="Status">${item.status === "active" ? "Ativo" : "Inativo"}</td>
+            <td data-label="">
               <button type="button" class="button-link ${kind}-edit-btn" data-requires-role="admin" data-id="${escapeHtml(item.id)}">editar</button>
               <button type="button" class="button-link ${kind}-delete-btn" data-requires-role="admin" data-id="${escapeHtml(item.id)}" data-name="${escapeHtml(item.name)}">remover</button>
             </td>
