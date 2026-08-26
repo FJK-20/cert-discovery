@@ -164,6 +164,22 @@ certificados.
 > rápida isso não importa; pra um uso real, use um plano com disco ou rode
 > via Docker Compose num servidor próprio (ver Opção 1 acima).
 
+### Health checks (Kubernetes e afins)
+
+Dois endpoints, sem autenticação, com propósitos diferentes — a distinção
+importa pra qualquer orquestrador que reinicia/tira de circulação uma
+réplica com base nisso:
+
+- `GET /healthz` — **liveness**: responde `200 {"status": "ok"}` sempre
+  que o processo está de pé. De propósito não toca em disco/banco — um
+  soluço passageiro de storage não deveria fazer o orquestrador matar e
+  reiniciar o processo à toa.
+- `GET /readyz` — **readiness**: confirma que `data/` está acessível e
+  gravável (`200 {"status": "ready"}` ou `503 {"status": "not ready"}`).
+  Isso pega o caso que `/healthz` sozinho nunca detectaria: processo de
+  pé, mas volume montado errado ou sem permissão — a réplica está viva,
+  mas não deveria receber tráfego.
+
 ## Acesso e autenticação
 
 A aplicação exige uma conta autenticada (usuário + senha) e suporta

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.acme import selfdns
@@ -21,7 +22,7 @@ from app.auth.dependencies import SESSION_COOKIE_NAME, get_authenticated_usernam
 from app.auth.routes_auth import router as auth_router
 from app.auth.routes_saml import router as saml_router
 from app.core.config import settings
-from app.core.db import init_db
+from app.core.db import get_connection, init_db
 from app.core.security_headers import SecurityHeadersMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -76,4 +77,23 @@ async def index(request: Request) -> FileResponse:
 
 @app.get("/healthz")
 async def healthz() -> dict:
+    """Liveness — responde sempre que o processo está de pé, de propósito
+    não toca em disco/banco (um soluço de storage não deveria fazer um
+    orquestrador matar/reiniciar o processo à toa — é isso que /readyz
+    abaixo é pra checar)."""
     return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz() -> JSONResponse:
+    """Readiness — confirma que o diretório de dados está acessível e
+    gravável (útil em orquestradores tipo Kubernetes pra não mandar
+    tráfego pra uma réplica com o volume montado errado/sem permissão,
+    algo que /healthz sozinho nunca detectaria)."""
+    try:
+        await asyncio.to_thread(lambda: get_connection(Path(settings.data_dir)).close())
+    except Exception:
+        return JSONResponse(
+            status_code=503, content={"status": "not ready", "reason": "data_dir inacessível"}
+        )
+    return JSONResponse(status_code=200, content={"status": "ready"})
