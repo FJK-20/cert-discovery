@@ -532,6 +532,7 @@ tbody tr:hover {
 td.note-cell {
   white-space: normal;
   color: var(--muted);
+  min-width: 6rem;
   max-width: 320px;
 }
 

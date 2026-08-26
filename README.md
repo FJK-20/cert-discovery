@@ -13,16 +13,28 @@ identifica hosts relacionados, realiza resolução DNS e handshake TLS ao
 vivo e consolida tudo num inventário — mas é só a primeira etapa do ciclo;
 dali em diante a aplicação também emite, renova e audita.
 
-> **Nota:** este projeto foi desenvolvido com auxílio de IA (Claude), como
-> peça de portfólio pessoal. O código foi revisado, mas pode conter bugs
-> pontuais, casos de borda não cobertos ou comportamento inesperado em
-> ambientes fora dos testados aqui. Use por sua conta e risco, revise antes
-> de qualquer uso além de estudo/demonstração, e sinta-se à vontade para
-> abrir uma issue se encontrar algo estranho.
+> **Nota:** este projeto foi desenvolvido com auxílio de IA (Claude). O
+> código foi revisado e testado, mas — como qualquer software — pode
+> conter bugs pontuais, casos de borda não cobertos ou comportamento
+> inesperado em ambientes fora dos testados aqui. Revise antes de usar em
+> produção, e sinta-se à vontade para abrir uma issue se encontrar algo
+> estranho.
 
 <p align="center">
-  <img src="docs/screenshots/app-empty.png" alt="Tela inicial do Certificate Manager" width="49%" />
-  <img src="docs/screenshots/app-results.png" alt="Inventário de certificados com cards de resumo e tabela de resultados" width="49%" />
+  <img src="docs/screenshots/dashboard.png" alt="Dashboard com resumo de urgência, distribuição por emissor/prazo e scans recentes" width="49%" />
+  <img src="docs/screenshots/inventario.png" alt="Inventário de certificados descobertos, com filtro e exportação" width="49%" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/certificados.png" alt="Tela de Certificados com cards de status (válido, expirando, expirado, monitorado)" width="49%" />
+  <img src="docs/screenshots/emissao.png" alt="Emissão via ACME, CSR manual e importação de certificado existente" width="49%" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/renovacao.png" alt="Fila de renovação com histórico de tentativas" width="49%" />
+  <img src="docs/screenshots/autoridades.png" alt="Autoridades e integrações: Cloudflare, ZeroSSL, Azure DNS, CNAME sem credencial" width="49%" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/cadastros.png" alt="Cadastros de organizações, sistemas e projetos" width="49%" />
+  <img src="docs/screenshots/configuracoes.png" alt="Configurações: segurança/MFA, SSO, notificações, usuários, API keys e log de auditoria" width="49%" />
 </p>
 
 ## Problema
