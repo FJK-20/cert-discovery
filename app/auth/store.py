@@ -68,6 +68,11 @@ class UserAccount:
     # username já costuma ser curto o bastante pra mostrar direto; "" faz
     # a UI cair de volta pro username.
     display_name: str = ""
+    # Último counter TOTP (RFC 4226) consumido com sucesso — fecha replay
+    # de código (ver app.auth.totp.verify_totp): um código de 6 dígitos
+    # observado (rede, ombro, log) não vale de novo dentro da mesma
+    # janela de tolerância só porque ainda está no período válido.
+    last_totp_counter: int | None = None
 
 
 @dataclass

@@ -224,14 +224,17 @@ async def login_verify_mfa(payload: LoginMfaRequest, request: Request, response:
         )
 
     account = user_store.load(username)
-    if (
-        account is None
-        or not account.mfa_enabled
-        or not totp.verify_totp(account.totp_secret, payload.code)
-    ):
+    used_counter = (
+        totp.verify_totp(account.totp_secret, payload.code, last_counter=account.last_totp_counter)
+        if account is not None and account.mfa_enabled
+        else None
+    )
+    if account is None or not account.mfa_enabled or used_counter is None:
         audit_log.record(username=username, action="mfa_failed")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código inválido.")
 
+    account.last_totp_counter = used_counter
+    user_store.save(account)
     pending_login_store.revoke(payload.pending_token)
     token = session_store.issue(username)
     _set_session_cookie(response, token, request)
@@ -281,12 +284,14 @@ async def mfa_enroll_confirm(
     if not account.pending_totp_secret:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_NO_PENDING_ENROLL_MSG)
 
-    if not totp.verify_totp(account.pending_totp_secret, payload.code):
+    used_counter = totp.verify_totp(account.pending_totp_secret, payload.code)
+    if used_counter is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código inválido.")
 
     account.totp_secret = account.pending_totp_secret
     account.pending_totp_secret = None
     account.mfa_enabled = True
+    account.last_totp_counter = used_counter
     user_store.save(account)
     audit_log.record(username=username, action="mfa_enabled")
     return {"ok": True}

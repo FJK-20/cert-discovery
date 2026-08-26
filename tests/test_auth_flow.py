@@ -11,6 +11,8 @@ para não vazar estado entre testes nem depender do disco real. O
 camada de autenticação, não o pipeline de scan (já coberto em outros testes).
 """
 
+import time
+
 from fastapi.testclient import TestClient
 
 from app.audit.log import audit_log
@@ -31,6 +33,26 @@ class _FakeJob:
 
 async def _fake_create(domain, manual_hosts=None, *, enumerate_subdomains=False):
     return _FakeJob()
+
+
+def _fixed_clock(monkeypatch, start: float = 1_700_000_000.0):
+    """Congela time.time() (usado tanto pelo teste ao gerar um código TOTP
+    quanto pelo servidor ao verificar) numa referência controlável — desde
+    a proteção de replay em app.auth.totp, dois `totp.totp_now(secret)`
+    chamados em sequência rápida (tempo real) podem cair na mesma janela
+    de 30s e gerar o MESMO código, que a segunda verificação corretamente
+    rejeita por já ter sido consumido. Devolve um objeto com `.advance()`
+    pra mover o relógio pro próximo período entre dois códigos do mesmo
+    teste."""
+
+    state = {"now": start}
+
+    class _Clock:
+        def advance(self, seconds: float = totp.PERIOD_SECONDS) -> None:
+            state["now"] += seconds
+
+    monkeypatch.setattr(time, "time", lambda: state["now"])
+    return _Clock()
 
 
 def _client(tmp_path, monkeypatch) -> TestClient:
@@ -152,10 +174,14 @@ def test_mfa_endpoints_require_authentication(tmp_path, monkeypatch):
 
 
 def test_login_flow_requires_password_and_mfa_once_enabled(tmp_path, monkeypatch):
+    clock = _fixed_clock(monkeypatch)
     client = _client(tmp_path, monkeypatch)
     client.post("/api/auth/setup", json=ADMIN)
     secret = client.post("/api/auth/mfa/enroll").json()["secret"]
     client.post("/api/auth/mfa/enroll/confirm", json={"code": totp.totp_now(secret)})
+    # próximo período: o código de confirmação de enrollment já foi
+    # consumido (proteção de replay) — o login real precisa de um novo.
+    clock.advance()
 
     client.post("/api/auth/logout")
     assert _state(client) == "needs_login"
@@ -180,6 +206,37 @@ def test_login_flow_requires_password_and_mfa_once_enabled(tmp_path, monkeypatch
     assert client.post("/api/auth/login/verify-mfa", json=good_mfa).status_code == 200
     assert _state(client) == "authenticated"
     assert _scan_status(client) == 200
+
+
+def test_mfa_code_cannot_be_replayed_across_two_logins(tmp_path, monkeypatch):
+    """Achado numa auditoria de robustez: sem rastrear consumo, um código
+    de 6 dígitos observado (rede, ombro, log de acesso) valia de novo por
+    toda a janela de tolerância (~90s) — TOTP é projetado pra uso único."""
+    clock = _fixed_clock(monkeypatch)
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    secret = client.post("/api/auth/mfa/enroll").json()["secret"]
+    client.post("/api/auth/mfa/enroll/confirm", json={"code": totp.totp_now(secret)})
+    clock.advance()
+    client.post("/api/auth/logout")
+
+    code = totp.totp_now(secret)
+    first_login = client.post("/api/auth/login", json=ADMIN)
+    first_verify = client.post(
+        "/api/auth/login/verify-mfa",
+        json={"pending_token": first_login.json()["pending_token"], "code": code},
+    )
+    assert first_verify.status_code == 200
+    client.post("/api/auth/logout")
+
+    # mesmo código, mesmo instante (relógio congelado) — a segunda tentativa
+    # de usar ESSE código específico não pode logar de novo.
+    second_login = client.post("/api/auth/login", json=ADMIN)
+    second_verify = client.post(
+        "/api/auth/login/verify-mfa",
+        json={"pending_token": second_login.json()["pending_token"], "code": code},
+    )
+    assert second_verify.status_code == 401
 
 
 def test_disable_mfa_requires_correct_password_and_reverts_to_single_step_login(
@@ -691,6 +748,7 @@ def test_logout_is_audited(tmp_path, monkeypatch):
 
 
 def test_mfa_verify_failure_is_audited(tmp_path, monkeypatch):
+    clock = _fixed_clock(monkeypatch)
     client = _client(tmp_path, monkeypatch)
     client.post("/api/auth/setup", json=ADMIN)
 
@@ -706,7 +764,9 @@ def test_mfa_verify_failure_is_audited(tmp_path, monkeypatch):
     assert response.status_code == 401
 
     # a verificação MFA falhou de propósito, sem sessão — completa o
-    # login de verdade (código certo) pra poder ler o log.
+    # login de verdade pra poder ler o log. Próximo período: o código de
+    # confirmação de enrollment já foi consumido (proteção de replay).
+    clock.advance()
     login2 = client.post("/api/auth/login", json=ADMIN)
     client.post(
         "/api/auth/login/verify-mfa",

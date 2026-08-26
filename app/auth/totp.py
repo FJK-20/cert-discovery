@@ -44,15 +44,35 @@ def totp_now(secret: str, *, timestamp: float | None = None) -> str:
     return _hotp(secret, counter)
 
 
-def verify_totp(secret: str, code: str, *, timestamp: float | None = None) -> bool:
+def verify_totp(
+    secret: str,
+    code: str,
+    *,
+    last_counter: int | None = None,
+    timestamp: float | None = None,
+) -> int | None:
+    """Retorna o counter do código usado se válido e ainda não consumido,
+    ou `None` se inválido. Achado numa auditoria de robustez: sem
+    rastrear consumo, um código observado (rede, ombro, log de acesso)
+    valia de novo por toda a janela de tolerância (~90s) — TOTP é
+    projetado pra ser de uso único, não só "válido por um tempo".
+
+    `last_counter=None` (default) não aplica proteção de replay —
+    comportamento original, usado na confirmação de enrollment (segredo
+    acabou de nascer, não tem nada anterior pra reproduzir ainda).
+    Passar o último counter já consumido da conta fecha o replay: um
+    candidato `<= last_counter` é ignorado mesmo que o código bata."""
     if not code or not code.isdigit() or len(code) != DIGITS:
-        return False
+        return None
     now = timestamp if timestamp is not None else time.time()
     counter = int(now // PERIOD_SECONDS)
     for offset in range(-VALID_WINDOW, VALID_WINDOW + 1):
-        if hmac.compare_digest(_hotp(secret, counter + offset), code):
-            return True
-    return False
+        candidate = counter + offset
+        if last_counter is not None and candidate <= last_counter:
+            continue
+        if hmac.compare_digest(_hotp(secret, candidate), code):
+            return candidate
+    return None
 
 
 def provisioning_uri(secret: str, *, account_name: str, issuer: str) -> str:
