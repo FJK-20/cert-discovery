@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -22,6 +23,14 @@ router = APIRouter(prefix="/api/scan", dependencies=[Depends(require_session)])
 _rate_limiter = SlidingWindowRateLimiter(max_requests=settings.rate_limit_requests_per_minute)
 
 _TERMINAL_STATES = {JobState.DONE, JobState.PARTIAL_TIMEOUT, JobState.FAILED}
+
+# Achado numa auditoria de robustez: o SSE de progresso só saía do loop
+# quando job.state virava terminal — um job persistido num estado não-
+# terminal (ex.: reinício do processo no meio de um scan, que nunca mais
+# vai avançar sozinho) prendia a stream pra sempre. Teto absoluto,
+# folgado o bastante pra nunca cortar um scan real em andamento (job_ttl
+# — settings.py — já expira o job da memória bem antes disso).
+_SSE_MAX_SECONDS = 20 * 60
 
 
 class ScanRequest(BaseModel):
@@ -98,14 +107,19 @@ async def scan_history_list(limit: int = 15) -> list[dict]:
 
 
 @router.get("/{job_id}/events")
-async def scan_events(job_id: str):
+async def scan_events(request: Request, job_id: str):
     job = job_manager.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job não encontrado (pode ter expirado).")
 
     async def event_stream():
         last_payload: str | None = None
+        deadline = time.monotonic() + _SSE_MAX_SECONDS
         while True:
+            if time.monotonic() > deadline:
+                break
+            if await request.is_disconnected():
+                break
             payload = json.dumps(_job_snapshot(job), ensure_ascii=False)
             if payload != last_payload:
                 yield f"data: {payload}\n\n"

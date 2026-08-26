@@ -7,11 +7,13 @@ dentro da zona."""
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 
 import dns.message
 import dns.rcode
 import dns.rdatatype
+import pytest
 
 from app.acme import selfdns
 
@@ -103,3 +105,60 @@ def test_set_and_clear_challenge_round_trip(monkeypatch):
 
     selfdns.clear_challenge("app.example.com")
     assert selfdns.target_hostname("app.example.com") not in selfdns._challenges
+
+
+# --- _handle_tcp_connection: timeout e teto de conexões concorrentes
+# (achado numa auditoria de robustez — porta exposta, não-autenticada
+# por desenho, sem timeout nem limite algum antes disso) ---
+
+
+class _HangingReader:
+    """Simula um cliente slowloris: nunca manda dado nenhum."""
+
+    async def readexactly(self, n: int) -> bytes:
+        await asyncio.sleep(3600)
+        raise AssertionError("não deveria completar — o timeout precisa cortar antes")
+
+
+class _FakeWriter:
+    def __init__(self) -> None:
+        self.closed = False
+        self.written = b""
+
+    def write(self, data: bytes) -> None:
+        self.written += data
+
+    async def drain(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.anyio
+async def test_tcp_handler_times_out_on_a_client_that_never_sends_data(monkeypatch):
+    monkeypatch.setattr(selfdns, "_TCP_READ_TIMEOUT_SECONDS", 0.05)
+    writer = _FakeWriter()
+    await selfdns._handle_tcp_connection(_HangingReader(), writer)
+    assert writer.closed is True
+    assert writer.written == b""
+
+
+@pytest.mark.anyio
+async def test_tcp_handler_rejects_new_connections_when_at_concurrency_limit(monkeypatch):
+    async def _never_reads():
+        raise AssertionError("não deveria nem tentar ler — limite já estava cheio")
+
+    class _UnusedReader:
+        readexactly = staticmethod(lambda n: _never_reads())
+
+    # satura o semáforo por fora, como se _MAX_CONCURRENT_TCP_CONNECTIONS
+    # conexões reais já estivessem em andamento.
+    semaphore = asyncio.Semaphore(1)
+    await semaphore.acquire()
+    monkeypatch.setattr(selfdns, "_tcp_connection_semaphore", semaphore)
+
+    writer = _FakeWriter()
+    await selfdns._handle_tcp_connection(_UnusedReader(), writer)
+    assert writer.closed is True
+    assert writer.written == b""

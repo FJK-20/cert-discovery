@@ -47,6 +47,16 @@ _challenges: dict[str, str] = {}
 
 _TTL_SECONDS = 60
 
+# Achado numa auditoria de robustez: readexactly() sem timeout nenhum e
+# sem limite de conexões concorrentes — um cliente TCP conectando e nunca
+# mandando (ou mandando byte a byte, devagar) dado nenhum prendia a
+# conexão pra sempre. Porta 53 é exposta e não-autenticada por desenho, e
+# o servidor roda no mesmo event loop do FastAPI (--workers 1): esgotar
+# conexões/tasks aqui derruba o gerenciamento de certificado junto.
+_TCP_READ_TIMEOUT_SECONDS = 5.0
+_MAX_CONCURRENT_TCP_CONNECTIONS = 50
+_tcp_connection_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_TCP_CONNECTIONS)
+
 
 def target_hostname(domain: str) -> str:
     """Nome estável dentro da zona própria — o mesmo domínio emitido
@@ -131,20 +141,30 @@ async def _handle_tcp_connection(
     # são minúsculas (um TXT curto), então isso raramente é exercitado na
     # prática, mas um servidor autoritativo de verdade precisa suportar —
     # alguns resolvedores/validadores sempre preferem TCP.
-    try:
-        length_prefix = await reader.readexactly(2)
-        length = int.from_bytes(length_prefix, "big")
-        data = await reader.readexactly(length)
-        response = _build_response(data)
-        if response is not None:
-            writer.write(len(response).to_bytes(2, "big") + response)
-            await writer.drain()
-    except (asyncio.IncompleteReadError, ConnectionError):
-        pass
-    except Exception:
-        logger.exception("Falha inesperada processando consulta DNS via TCP")
-    finally:
+    if _tcp_connection_semaphore.locked():
+        # Teto de conexões concorrentes atingido — fecha na hora, sem
+        # sequer tentar ler nada (nunca enfileira trabalho ilimitado).
         writer.close()
+        return
+    async with _tcp_connection_semaphore:
+        try:
+            length_prefix = await asyncio.wait_for(
+                reader.readexactly(2), timeout=_TCP_READ_TIMEOUT_SECONDS
+            )
+            length = int.from_bytes(length_prefix, "big")
+            data = await asyncio.wait_for(
+                reader.readexactly(length), timeout=_TCP_READ_TIMEOUT_SECONDS
+            )
+            response = _build_response(data)
+            if response is not None:
+                writer.write(len(response).to_bytes(2, "big") + response)
+                await writer.drain()
+        except (asyncio.IncompleteReadError, ConnectionError, TimeoutError):
+            pass
+        except Exception:
+            logger.exception("Falha inesperada processando consulta DNS via TCP")
+        finally:
+            writer.close()
 
 
 _udp_transport: asyncio.DatagramTransport | None = None
