@@ -572,6 +572,34 @@ fica salvo) — perdeu, revoga e gera outra.
 | `CERTDISC_SELFDNS_ZONE`                | (vazio) | Zona que o servidor embutido responde (ex.: `acme.seudominio.com.br`) — obrigatória se `CERTDISC_SELFDNS_ENABLED=1` |
 | `CERTDISC_SELFDNS_PORT`                | `53`   | Porta UDP/TCP do servidor DNS embutido                |
 
+## Backup e restauração
+
+Tudo que a aplicação grava mora num único diretório —
+`CERTDISC_DATA_DIR` (`data/` por padrão): banco SQLite (histórico de
+scan e renovação), certificados/chaves/contas ACME (arquivos JSON,
+criptografados em repouso — ver seção Segurança), configuração de SSO e
+a `master.key` de criptografia. Não tem banco externo nem estado em
+outro lugar — copiar esse diretório inteiro é o backup completo.
+
+- **O que fazer**: `docker compose stop` (ou parar o processo), copiar o
+  diretório inteiro (`tar`, `rsync`, snapshot de volume — o que preferir),
+  religar. Copiar com o processo rodando também funciona na prática (os
+  arquivos JSON são reescritos inteiros a cada save, não editados
+  incrementalmente), mas o SQLite pode ficar num estado inconsistente se
+  o `tar`/`rsync` ler o arquivo no meio de uma escrita — parar o processo
+  primeiro é o jeito garantido.
+- **Restaurar**: parar o processo, substituir o diretório pela cópia,
+  religar — não tem passo de migração manual (as tabelas usam `CREATE
+  TABLE IF NOT EXISTS`, e dado de antes de uma camada de criptografia
+  existir é detectado e recriptografado automaticamente no próximo save).
+- **`master.key` é o item crítico**: sem ela, todo segredo criptografado
+  em disco (chave privada de certificado, token de API de DNS, senha de
+  SMTP, segredo TOTP) fica irrecuperável — perder só esse arquivo tem o
+  mesmo efeito prático de perder o backup inteiro. Se `CERTDISC_MASTER_KEY`
+  estiver definida via secret manager externo (recomendado em produção,
+  ver Segurança), o backup do diretório de dados sozinho não basta —
+  guarde a chave separadamente também.
+
 ## Segurança
 
 Encontrou uma vulnerabilidade? Veja [SECURITY.md](SECURITY.md) pra como
