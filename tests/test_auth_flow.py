@@ -464,6 +464,31 @@ def test_new_login_fails_for_a_deleted_user(tmp_path, monkeypatch):
     assert bad_login.status_code == 401
 
 
+def test_deleting_a_user_revokes_their_existing_session(tmp_path, monkeypatch):
+    """Achado numa auditoria de robustez: session_store (token→username)
+    é independente de user_store — excluir a conta não invalidava um
+    cookie de sessão já emitido, deixando uma conta desligada com leitura
+    válida (inventário, histórico, cadastros) pelo TTL de sessão inteiro
+    (12h). O logado de fato precisa perder acesso na PRÓXIMA requisição,
+    não só falhar num login novo (já coberto pelo teste acima)."""
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    client.post(
+        "/api/auth/users",
+        json={"username": "viewer", "password": "readonlypw", "role": "leitor"},
+    )
+
+    viewer_client = TestClient(app)
+    viewer_client.post("/api/auth/login", json={"username": "viewer", "password": "readonlypw"})
+    assert viewer_client.get("/api/auth/me").status_code == 200
+
+    client.delete("/api/auth/users/viewer")
+
+    # mesmo cliente, mesmo cookie de sessão — nenhum novo login envolvido
+    response = viewer_client.get("/api/auth/me")
+    assert response.status_code == 401
+
+
 def test_api_key_authenticates_and_respects_its_role(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     client.post("/api/auth/setup", json=ADMIN)

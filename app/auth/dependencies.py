@@ -29,10 +29,26 @@ def cookie_should_be_secure(request: Request) -> bool:
 
 def get_authenticated_username(session_token: str | None) -> str | None:
     """Não levanta exceção — usado pelo `main.py` para decidir qual página
-    servir em `/` (auth.html vs index.html)."""
+    servir em `/` (auth.html vs index.html), por `_compute_state()` em
+    routes_auth.py, e por `require_session` abaixo.
+
+    Confirma que a conta ainda existe, não só que o token de sessão é
+    válido — achado numa auditoria de robustez: excluir um usuário não
+    invalidava sessões já emitidas (token→username em
+    app/auth/sessions.py é um dicionário independente do cadastro de
+    usuários) — uma conta excluída às 9h continuava com leitura válida
+    (inventário, histórico, cadastros) pelo TTL de sessão inteiro (12h).
+    Troca de papel já era segura sem precisar disso (o papel é resolvido
+    a cada request em `_resolve_role`, nunca guardado no token)."""
     if session_token is None:
         return None
-    return session_store.peek(session_token)
+    username = session_store.peek(session_token)
+    if username is None:
+        return None
+    if user_store.load(username) is None:
+        session_store.revoke(session_token)
+        return None
+    return username
 
 
 async def require_session(

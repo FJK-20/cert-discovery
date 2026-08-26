@@ -8,6 +8,7 @@ que falha não pode derrubar o fluxo de renovação que a disparou."""
 from __future__ import annotations
 
 import smtplib
+import ssl
 from email.mime.text import MIMEText
 
 import httpx
@@ -40,7 +41,14 @@ def send_email(config: NotificationConfig, subject: str, message: str) -> None:
     try:
         with smtplib.SMTP(config.smtp_host, config.smtp_port, timeout=10) as smtp:
             if config.smtp_use_tls:
-                smtp.starttls()
+                # Achado numa auditoria de robustez: `starttls()` sem
+                # `context=` cai no contexto padrão do stdlib
+                # (`ssl._create_stdlib_context`), que NÃO verifica
+                # certificado (`CERT_NONE`, `check_hostname=False`) — um
+                # MITM de rede apresentando certificado próprio passava
+                # despercebido, e o login SMTP seguinte entregava a
+                # credencial em claro pra ele.
+                smtp.starttls(context=ssl.create_default_context())
             if config.smtp_username:
                 smtp.login(config.smtp_username, config.smtp_password or "")
             smtp.send_message(msg)

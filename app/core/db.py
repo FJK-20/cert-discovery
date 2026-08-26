@@ -20,8 +20,12 @@ default é o singleton lá em cima do módulo dono, os testes injetam um
 from __future__ import annotations
 
 import hashlib
+import hmac
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
+
+from app.core import crypto
 
 # Mesma fórmula de app/audit/log.py — duplicada aqui (não importada) pra
 # não criar um ciclo (audit/log.py importa deste módulo, não o contrário).
@@ -29,10 +33,16 @@ _AUDIT_GENESIS_HASH = "0" * 64
 
 
 def _compute_audit_hash(
-    prev_hash: str, entry_id: str, username: str | None, action: str, detail: str, created_at: str
+    key: bytes,
+    prev_hash: str,
+    entry_id: str,
+    username: str | None,
+    action: str,
+    detail: str,
+    created_at: str,
 ) -> str:
     payload = "|".join([prev_hash, entry_id, username or "", action, detail, created_at])
-    return hashlib.sha256(payload.encode()).hexdigest()
+    return hmac.new(key, payload.encode(), hashlib.sha256).hexdigest()
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS scan_jobs (
@@ -131,6 +141,17 @@ CREATE TABLE IF NOT EXISTS projects (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_projects_name ON projects(name);
+
+-- Migrações de schema já aplicadas — deliberadamente separada de
+-- audit_log: o gatilho de rodar (ou não) uma migração precisa ser um
+-- metadado da própria aplicação, nunca uma coluna de uma tabela de dados
+-- que quem tem escrita no arquivo (o mesmo adversário que a cadeia de
+-- hashes existe pra detectar) poderia manipular pra forçar uma
+-- re-execução. Ver _AUDIT_CHAIN_MIGRATION abaixo.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    name TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL
+);
 """
 
 # Colunas adicionadas depois da criação inicial da tabela — `CREATE TABLE
@@ -143,29 +164,48 @@ _MIGRATIONS = {
 }
 
 
-def _backfill_audit_log_hashes(conn: sqlite3.Connection) -> None:
-    """Linhas gravadas antes da cadeia de hashes existir (Fase 5) ganharam
-    `prev_hash`/`entry_hash` vazios só pelo ALTER TABLE (DEFAULT '') — sem
-    corrigir, `verify_chain()` marcaria a linha legada como "adulterada"
-    só por não ter um hash de verdade, e pior: `record()` teria lido esse
-    `entry_hash` vazio como se fosse um hash válido pra encadear a
-    primeira linha nova em cima dele (em vez do genesis), corrompendo a
-    cadeia a partir dali também.
+# Achado numa auditoria de robustez: a versão anterior deste backfill era
+# disparada por uma condição sobre o PRÓPRIO DADO (`entry_hash = ''`) e
+# rodava em toda `get_connection()` — incluindo a que `verify_chain()`
+# abre. Isso deixava quem tem escrita no arquivo (o mesmo adversário que a
+# cadeia existe pra detectar) reabrir o buraco: bastava zerar o
+# `entry_hash` de UMA linha qualquer (inclusive uma que já tinha sido
+# adulterada) que a aplicação recalculava a cadeia inteira por cima do log
+# já falsificado, e `verify_chain()` voltava a atestar "íntegro". A própria
+# rotina de correção virou o vetor de ataque.
+#
+# O gatilho agora é a tabela `schema_migrations` (metadado da aplicação,
+# nunca uma coluna de `audit_log`) — roda no máximo uma vez por banco,
+# nunca de novo depois disso, e nenhum valor gravável em `audit_log` pelo
+# adversário consegue re-acioná-la.
+_AUDIT_CHAIN_MIGRATION = "audit_log_hmac_chain_v1"
 
-    Por isso não é um backfill pontual só das linhas vazias — se **qualquer**
-    linha tem hash vazio, a tabela inteira é recalculada do zero em ordem
-    cronológica a partir do genesis. É idempotente (uma tabela já correta
-    não tem `entry_hash = ''` em lugar nenhum, então isso não roda de
-    novo) e barato (log de auditoria não é uma tabela de alto volume)."""
-    has_blank = conn.execute("SELECT 1 FROM audit_log WHERE entry_hash = '' LIMIT 1").fetchone()
-    if not has_blank:
-        return
 
+def _migration_applied(conn: sqlite3.Connection, name: str) -> bool:
+    row = conn.execute("SELECT 1 FROM schema_migrations WHERE name = ?", (name,)).fetchone()
+    return row is not None
+
+
+def _mark_migration_applied(conn: sqlite3.Connection, name: str) -> None:
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_migrations (name, applied_at) VALUES (?, ?)",
+        (name, datetime.now(UTC).isoformat()),
+    )
+
+
+def _rebuild_audit_chain(conn: sqlite3.Connection, hmac_key: bytes) -> None:
+    """Recalcula a cadeia inteira do zero com HMAC-SHA256 (chave: master
+    key de app/core/crypto.py) — cobre ao mesmo tempo linhas de antes da
+    cadeia existir (Fase 4, prev_hash/entry_hash vazios) e linhas já
+    encadeadas com SHA-256 puro (antes desta migração), porque as duas
+    viram a mesma baseline HMAC daqui em diante. Também eleva a barra do
+    achado anterior: recomputar a cadeia por fora da aplicação agora exige
+    a master key, não só os dados da própria tabela."""
     rows = conn.execute("SELECT * FROM audit_log ORDER BY created_at ASC, rowid ASC").fetchall()
     running_prev = _AUDIT_GENESIS_HASH
     for row in rows:
         entry_hash = _compute_audit_hash(
-            running_prev, row["id"], row["username"], row["action"], row["detail"],
+            hmac_key, running_prev, row["id"], row["username"], row["action"], row["detail"],
             row["created_at"],
         )
         conn.execute(
@@ -176,7 +216,7 @@ def _backfill_audit_log_hashes(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _run_migrations(conn: sqlite3.Connection) -> None:
+def _run_migrations(conn: sqlite3.Connection, data_dir: Path) -> None:
     for table, column_defs in _MIGRATIONS.items():
         existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
         for column_def in column_defs:
@@ -184,21 +224,30 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
             if column_name not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column_def}")
     conn.commit()
-    _backfill_audit_log_hashes(conn)
+
+    if not _migration_applied(conn, _AUDIT_CHAIN_MIGRATION):
+        _rebuild_audit_chain(conn, crypto.load_master_key(data_dir))
+        _mark_migration_applied(conn, _AUDIT_CHAIN_MIGRATION)
+        conn.commit()
 
 
-def get_connection(data_dir: Path) -> sqlite3.Connection:
+def get_connection(data_dir: Path, *, apply_migrations: bool = True) -> sqlite3.Connection:
     """Toda chamada garante que o schema existe (`CREATE TABLE IF NOT
     EXISTS`, idempotente) — evita depender de alguém ter chamado
     `init_db()` primeiro (ex.: os testes instanciam os managers direto,
-    sem passar pelo lifespan do FastAPI onde isso normalmente roda)."""
+    sem passar pelo lifespan do FastAPI onde isso normalmente roda).
+
+    `apply_migrations=False` abre a conexão sem rodar nenhuma migração —
+    defesa em profundidade além do fix acima: o caminho de só-leitura
+    (`verify_chain()`) nunca deveria ter motivo pra escrever no banco."""
     data_dir.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(data_dir / "cert_discovery.sqlite3")
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
     conn.executescript(_SCHEMA)
-    _run_migrations(conn)
+    if apply_migrations:
+        _run_migrations(conn, data_dir)
     return conn
 
 

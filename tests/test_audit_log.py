@@ -107,8 +107,16 @@ def test_legacy_row_without_hash_gets_backfilled_and_chain_stays_valid(tmp_path)
     antes da cadeia de hashes existir (Fase 4) tem prev_hash/entry_hash
     vazios (DEFAULT '' do ALTER TABLE) — sem o backfill em app/core/db.py,
     a primeira linha NOVA encadeava em cima desse '' como se fosse um
-    hash válido, corrompendo a cadeia a partir dali."""
-    conn = get_connection(tmp_path)
+    hash válido, corrompendo a cadeia a partir dali.
+
+    `apply_migrations=False` aqui é deliberado: a migração da cadeia de
+    hashes (schema_migrations-gated) só deve rodar na primeira conexão
+    REAL depois que a linha legada já existe — abrir com a migração
+    ligada neste setup marcaria "já migrado" sobre uma tabela ainda vazia,
+    e a inserção manual logo abaixo nunca seria corrigida (não é assim
+    que uma migração real de produção aconteceria: a linha legada já
+    estaria lá antes de o código novo rodar pela primeira vez)."""
+    conn = get_connection(tmp_path, apply_migrations=False)
     conn.execute(
         "INSERT INTO audit_log (id, username, action, detail, created_at, prev_hash, entry_hash) "
         "VALUES ('legacy-1', 'admin', 'scan_started', 'example.com', '2026-01-01T00:00:00+00:00', "
@@ -117,8 +125,8 @@ def test_legacy_row_without_hash_gets_backfilled_and_chain_stays_valid(tmp_path)
     conn.commit()
     conn.close()
 
-    # qualquer chamada no store aciona get_connection() -> migração ->
-    # backfill, exatamente como aconteceria num restart real depois do
+    # primeira chamada real no store aciona get_connection() -> migração
+    # -> backfill, exatamente como aconteceria num restart real depois do
     # deploy da Fase 5
     store = AuditLogStore(tmp_path)
     store.record(username="admin", action="user_created", detail="viewer")
@@ -131,3 +139,48 @@ def test_legacy_row_without_hash_gets_backfilled_and_chain_stays_valid(tmp_path)
     assert entries[0]["prev_hash"] == "0" * 64
     assert entries[0]["entry_hash"] != ""
     assert entries[1]["prev_hash"] == entries[0]["entry_hash"]
+
+
+def test_zeroing_entry_hash_does_not_erase_tampering_evidence(tmp_path):
+    """Achado numa auditoria de robustez (GitSec Analyzer): a versão
+    anterior do backfill era disparada por `entry_hash = ''` — um valor
+    que qualquer um com escrita no arquivo SQLite podia gravar. Isso
+    deixava o próprio mecanismo de correção virar vetor de ataque: depois
+    de adulterar uma linha (o que `verify_chain()` já detectava
+    corretamente), bastava zerar o `entry_hash` de qualquer linha —
+    inclusive a adulterada — que a aplicação recalculava a cadeia inteira
+    por cima do log já falsificado na PRÓXIMA conexão, e `verify_chain()`
+    voltava a atestar "íntegro". Este teste reproduz exatamente esse
+    ataque e confirma que a migração agora versionada (schema_migrations)
+    não é mais re-acionável por um valor gravável em `audit_log`."""
+    store = AuditLogStore(tmp_path)
+    store.record(username="admin", action="user_created", detail="original")
+    store.record(username="admin", action="dns_credentials_saved", detail="cloudflare")
+    store.record(username="admin", action="login", detail="admin")
+
+    ok, _ = store.verify_chain()
+    assert ok is True
+
+    conn = get_connection(tmp_path)
+    # Adultera a linha do meio, exatamente como o relatório reproduziu.
+    conn.execute(
+        "UPDATE audit_log SET detail = 'adulterado' WHERE action = 'dns_credentials_saved'"
+    )
+    conn.commit()
+
+    ok, broken_at = store.verify_chain()
+    assert ok is False, "a adulteração precisa ser detectada antes do ataque"
+
+    # Tenta reabrir o buraco: zera o entry_hash da própria linha
+    # adulterada, como o PoC do relatório fazia.
+    conn.execute(
+        "UPDATE audit_log SET entry_hash = '' WHERE action = 'dns_credentials_saved'"
+    )
+    conn.commit()
+    conn.close()
+
+    ok, broken_at = store.verify_chain()
+    assert ok is False, (
+        "zerar um entry_hash não pode fazer a aplicação recalcular a cadeia "
+        "por cima do log adulterado — a migração é versionada, não roda de novo"
+    )

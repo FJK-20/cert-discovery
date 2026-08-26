@@ -20,10 +20,12 @@ espírito de app/notify/notifier.py)."""
 from __future__ import annotations
 
 import hashlib
+import hmac
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.core import crypto
 from app.core.config import settings
 from app.core.db import get_connection
 
@@ -31,15 +33,32 @@ _GENESIS_HASH = "0" * 64
 
 
 def _compute_hash(
-    prev_hash: str, entry_id: str, username: str | None, action: str, detail: str, created_at: str
+    key: bytes,
+    prev_hash: str,
+    entry_id: str,
+    username: str | None,
+    action: str,
+    detail: str,
+    created_at: str,
 ) -> str:
     payload = "|".join([prev_hash, entry_id, username or "", action, detail, created_at])
-    return hashlib.sha256(payload.encode()).hexdigest()
+    return hmac.new(key, payload.encode(), hashlib.sha256).hexdigest()
 
 
 class AuditLogStore:
     def __init__(self, data_dir: Path) -> None:
         self._data_dir = data_dir
+        self._hmac_key: bytes | None = None
+
+    def _get_hmac_key(self) -> bytes:
+        # Preguiçoso, mesmo padrão de SecretBox — evita ler/gerar
+        # data/master.key só por instanciar o store (ex.: testes que
+        # nunca chamam record()/verify_chain()). HMAC em vez de SHA-256
+        # puro: recomputar a cadeia por fora da aplicação agora exige a
+        # master key, não só os dados da própria tabela.
+        if self._hmac_key is None:
+            self._hmac_key = crypto.load_master_key(self._data_dir)
+        return self._hmac_key
 
     def record(self, *, username: str | None, action: str, detail: str = "") -> None:
         conn = get_connection(self._data_dir)
@@ -61,7 +80,9 @@ class AuditLogStore:
             prev_hash = last["entry_hash"] if last and last["entry_hash"] else _GENESIS_HASH
             entry_id = str(uuid.uuid4())
             created_at = datetime.now(UTC).isoformat()
-            entry_hash = _compute_hash(prev_hash, entry_id, username, action, detail, created_at)
+            entry_hash = _compute_hash(
+                self._get_hmac_key(), prev_hash, entry_id, username, action, detail, created_at
+            )
             conn.execute(
                 "INSERT INTO audit_log "
                 "(id, username, action, detail, created_at, prev_hash, entry_hash) "
@@ -87,8 +108,12 @@ class AuditLogStore:
     def verify_chain(self) -> tuple[bool, str | None]:
         """Percorre a cadeia inteira em ordem cronológica recomputando
         cada hash. Devolve (True, None) se intacta, ou (False, id da
-        primeira linha que não bate) se algo foi adulterado."""
-        conn = get_connection(self._data_dir)
+        primeira linha que não bate) se algo foi adulterado.
+
+        `apply_migrations=False`: verificação é leitura pura — nunca deve
+        ter como efeito colateral rodar uma migração (que escreve na
+        tabela que está sendo verificada)."""
+        conn = get_connection(self._data_dir, apply_migrations=False)
         try:
             rows = conn.execute(
                 "SELECT * FROM audit_log ORDER BY created_at ASC, rowid ASC"
@@ -96,10 +121,11 @@ class AuditLogStore:
         finally:
             conn.close()
 
+        key = self._get_hmac_key()
         expected_prev = _GENESIS_HASH
         for row in rows:
             recomputed = _compute_hash(
-                expected_prev, row["id"], row["username"], row["action"], row["detail"],
+                key, expected_prev, row["id"], row["username"], row["action"], row["detail"],
                 row["created_at"],
             )
             if row["prev_hash"] != expected_prev or row["entry_hash"] != recomputed:

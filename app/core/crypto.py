@@ -43,6 +43,15 @@ def _load_or_create_key(data_dir: Path) -> bytes:
     return key
 
 
+def load_master_key(data_dir: Path) -> bytes:
+    """Mesma master key do SecretBox acima, exposta pra uso como chave
+    HMAC da cadeia de auditoria (app/audit/log.py) — reforça o hash chain
+    contra quem só tem escrita no arquivo SQLite mas não tem a master key
+    (que por design pode viver fora do disco de dados, via
+    CERTDISC_MASTER_KEY vindo de um secret manager)."""
+    return _load_or_create_key(data_dir)
+
+
 class SecretBox:
     def __init__(self, data_dir: Path) -> None:
         self._data_dir = data_dir

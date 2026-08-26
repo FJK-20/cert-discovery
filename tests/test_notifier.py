@@ -5,6 +5,7 @@ da suíte automatizada, mesmo padrão do resto do projeto)."""
 from __future__ import annotations
 
 import smtplib
+import ssl
 
 import httpx
 import pytest
@@ -59,8 +60,8 @@ def test_notify_sends_email_when_configured(monkeypatch):
         def __exit__(self, *exc):
             return False
 
-        def starttls(self):
-            sent_messages.append("starttls")
+        def starttls(self, context=None):
+            sent_messages.append(("starttls", context))
 
         def login(self, username, password):
             sent_messages.append(("login", username, password))
@@ -80,7 +81,15 @@ def test_notify_sends_email_when_configured(monkeypatch):
     )
     sent = notifier.notify("assunto", "mensagem", config)
     assert sent == ["email"]
-    assert "starttls" in sent_messages
+    # Achado numa auditoria de robustez: starttls() sem context= caía no
+    # contexto padrão do stdlib, que não verifica certificado nenhum —
+    # confirma aqui que um ssl.SSLContext real (que verifica) é passado.
+    starttls_calls = [m for m in sent_messages if isinstance(m, tuple) and m[0] == "starttls"]
+    assert len(starttls_calls) == 1
+    context = starttls_calls[0][1]
+    assert isinstance(context, ssl.SSLContext)
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname is True
     assert ("login", "user", "pw") in sent_messages
     assert ("sent", "assunto", "alerts@example.com", "admin@example.com") in sent_messages
 
@@ -114,7 +123,7 @@ def test_notify_tries_both_channels_independently(monkeypatch):
         def __exit__(self, *exc):
             return False
 
-        def starttls(self):
+        def starttls(self, context=None):
             pass
 
         def send_message(self, msg):
