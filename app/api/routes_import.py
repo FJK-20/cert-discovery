@@ -13,15 +13,26 @@ from __future__ import annotations
 import uuid
 
 from cryptography import x509
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.acme.store import IssuedCertificate, acme_store
 from app.audit.log import audit_log
 from app.auth.dependencies import require_operator, require_session
+from app.core.ratelimit import SlidingWindowRateLimiter
 from app.pki import csr as pki_csr
 
 router = APIRouter(prefix="/api/import", dependencies=[Depends(require_session)])
+
+# Achado numa auditoria de robustez: este endpoint não tinha limite nenhum
+# — qualquer sessão operador+ podia chamar sem parar (cada chamada grava
+# um arquivo novo em disco). Mesmo limite que CSR/emissão usam pra uma
+# ação equivalente ("cria um certificado gerenciado").
+_rate_limiter = SlidingWindowRateLimiter(max_requests=10, window_seconds=300)
+
+
+def _client_key(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
 
 
 class ImportCertificateRequest(BaseModel):
@@ -34,8 +45,15 @@ class ImportCertificateRequest(BaseModel):
 
 @router.post("/certificate", status_code=201)
 async def import_certificate(
-    payload: ImportCertificateRequest, username: str = Depends(require_operator)
+    payload: ImportCertificateRequest,
+    request: Request,
+    username: str = Depends(require_operator),
 ) -> dict:
+    if not _rate_limiter.allow(_client_key(request)):
+        raise HTTPException(
+            status_code=429,
+            detail="Muitas importações — aguarde alguns minutos antes de tentar novamente.",
+        )
     cert_pem = payload.certificate_pem.strip()
     key_pem = payload.private_key_pem.strip() if payload.private_key_pem else None
 

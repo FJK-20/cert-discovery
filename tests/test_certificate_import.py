@@ -48,6 +48,7 @@ def _client(tmp_path, monkeypatch) -> TestClient:
     monkeypatch.setattr("app.auth.routes_auth.pending_login_store", TokenStore(ttl_seconds=300))
     monkeypatch.setattr("app.auth.dependencies.session_store", session_store)
     monkeypatch.setattr("app.auth.routes_auth._rate_limiter", unlimited)
+    monkeypatch.setattr("app.api.routes_import._rate_limiter", unlimited)
     store = AcmeStore(tmp_path)
     monkeypatch.setattr("app.api.routes_import.acme_store", store)
     monkeypatch.setattr("app.api.routes_acme.acme_store", store)
@@ -127,6 +128,29 @@ def test_import_rejects_garbage_certificate(tmp_path, monkeypatch):
         "/api/import/certificate", json={"certificate_pem": "not a real certificate"}
     )
     assert response.status_code == 400
+
+
+def test_import_is_rate_limited(tmp_path, monkeypatch):
+    # Achado numa auditoria de robustez: este endpoint não tinha limite
+    # nenhum — uma sessão válida podia importar sem parar. `_client()`
+    # desliga esse limitador por padrão (pros outros testes deste arquivo
+    # não competirem pelo mesmo balde) — aqui precisa de um de verdade,
+    # isolado (instância própria, não o singleton do módulo) pra não
+    # herdar contagem de nenhum outro teste.
+    client = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "app.api.routes_import._rate_limiter",
+        SlidingWindowRateLimiter(max_requests=10, window_seconds=300),
+    )
+    key = pki_keys.generate_private_key()
+
+    responses = []
+    for i in range(11):
+        cert_pem = _self_signed_cert([f"ratelimit{i}.example.com"], key)
+        responses.append(client.post("/api/import/certificate", json={"certificate_pem": cert_pem}))
+
+    assert [r.status_code for r in responses[:10]] == [201] * 10
+    assert responses[10].status_code == 429
 
 
 def test_import_uses_certificates_real_not_valid_before_not_import_time(tmp_path, monkeypatch):
