@@ -5,12 +5,18 @@ handshake TLS ao vivo, dedupe por fingerprint), emissão/renovação via ACME
 (Let's Encrypt e ZeroSSL, DNS-01 manual/Cloudflare/Azure DNS/delegação
 CNAME) ou CSR manual, renovação agendada com notificação, multiusuário com
 4 papéis + SSO SAML, log de auditoria tamper-evident, criptografia em
-repouso. Projeto de portfólio open source (MIT) — não é código de cliente.
-O diretório/repo continua se chamando `cert-discovery` (não renomear —
-quebraria o path da imagem `ghcr.io/fjk-20/cert-discovery`), mas a
-identidade voltada pro usuário é "Certificate Manager", não mais
-"discovery" — descoberta é uma etapa do ciclo de vida, não o produto
-inteiro.
+repouso. Ferramenta open source (MIT) de uso real, não só peça de
+portfólio — o objetivo é funcionar de verdade, genérica o bastante pra
+rodar em ambientes diferentes (o usuário pretende usar a própria, a
+começar pelo ambiente onde trabalha). Isso não muda a regra de sempre:
+nenhum dado real de um ambiente específico (nome de organização, CNPJ,
+domínio interno, credencial, print de tela de produção de terceiro) vai
+pro código/commits/docs — cada deploy configura o que é seu via variável
+de ambiente ou pela própria UI, o repo fica genérico. O diretório/repo
+continua se chamando `cert-discovery` (não renomear — quebraria o path
+da imagem `ghcr.io/fjk-20/cert-discovery`), mas a identidade voltada pro
+usuário é "Certificate Manager", não mais "discovery" — descoberta é uma
+etapa do ciclo de vida, não o produto inteiro.
 
 ## Stack
 Python 3.13, FastAPI, `httpx`, `cryptography`, `dnspython`, stdlib TOTP/scrypt
