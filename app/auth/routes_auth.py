@@ -191,6 +191,14 @@ async def login(payload: LoginRequest, request: Request, response: Response) -> 
         )
     password_ok = account is not None and verify_password(payload.password, account.password_hash)
     if account is None or not password_ok:
+        # Achado numa auditoria de robustez: login bem-sucedido, falhado,
+        # código MFA inválido e logout não deixavam rastro nenhum — um
+        # spray de senha bem-sucedido contra o admin não aparecia em
+        # lugar nenhum, justamente no produto cujo propósito central é
+        # log de auditoria. Username tentado (não o payload de senha)
+        # registrado mesmo quando a conta não existe — é exatamente o
+        # dado que uma investigação precisa ver.
+        audit_log.record(username=username, action="login_failed", detail=username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário ou senha inválidos."
         )
@@ -198,6 +206,7 @@ async def login(payload: LoginRequest, request: Request, response: Response) -> 
     if not account.mfa_enabled:
         token = session_store.issue(account.username)
         _set_session_cookie(response, token, request)
+        audit_log.record(username=account.username, action="login_success", detail="sem MFA")
         return {"mfa_required": False}
 
     pending_token = pending_login_store.issue(account.username)
@@ -220,11 +229,13 @@ async def login_verify_mfa(payload: LoginMfaRequest, request: Request, response:
         or not account.mfa_enabled
         or not totp.verify_totp(account.totp_secret, payload.code)
     ):
+        audit_log.record(username=username, action="mfa_failed")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código inválido.")
 
     pending_login_store.revoke(payload.pending_token)
     token = session_store.issue(username)
     _set_session_cookie(response, token, request)
+    audit_log.record(username=username, action="login_success", detail="com MFA")
     return {"ok": True}
 
 
@@ -232,6 +243,9 @@ async def login_verify_mfa(payload: LoginMfaRequest, request: Request, response:
 async def logout(request: Request, response: Response) -> dict:
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if token:
+        username = get_authenticated_username(token)
+        if username is not None:
+            audit_log.record(username=username, action="logout")
         session_store.revoke(token)
     response.delete_cookie(SESSION_COOKIE_NAME, path="/")
     return {"ok": True}

@@ -640,3 +640,76 @@ def test_sso_provisioned_account_cannot_login_with_password(tmp_path, monkeypatc
     )
     assert response.status_code == 401
     assert "SSO" in response.json()["detail"]
+
+
+def _audit_actions(client) -> list[str]:
+    return [e["action"] for e in client.get("/api/audit-log").json()]
+
+
+def test_login_success_is_audited(tmp_path, monkeypatch):
+    """Achado numa auditoria de robustez: login bem-sucedido, falhado,
+    MFA inválido e logout não deixavam rastro — um spray de senha
+    bem-sucedido contra o admin não aparecia em lugar nenhum, no produto
+    cujo propósito central é log de auditoria."""
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    client.post("/api/auth/logout")
+
+    response = client.post("/api/auth/login", json=ADMIN)
+    assert response.status_code == 200
+    assert "login_success" in _audit_actions(client)
+
+
+def test_login_failure_is_audited_with_attempted_username(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    client.post("/api/auth/logout")
+
+    response = client.post(
+        "/api/auth/login", json={"username": "admin", "password": "senha-errada"}
+    )
+    assert response.status_code == 401
+
+    # o cliente saiu sem sessão válida (login falhou de propósito) —
+    # precisa reautenticar pra poder ler o log que acabou de registrar
+    # essa própria falha.
+    client.post("/api/auth/login", json=ADMIN)
+    entries = client.get("/api/audit-log").json()
+    failed = next(e for e in entries if e["action"] == "login_failed")
+    assert failed["detail"] == "admin"
+
+
+def test_logout_is_audited(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+
+    response = client.post("/api/auth/logout")
+    assert response.status_code == 200
+
+    client.post("/api/auth/login", json=ADMIN)
+    assert "logout" in _audit_actions(client)
+
+
+def test_mfa_verify_failure_is_audited(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+
+    secret = client.post("/api/auth/mfa/enroll").json()["secret"]
+    client.post("/api/auth/mfa/enroll/confirm", json={"code": totp.totp_now(secret)})
+    client.post("/api/auth/logout")
+
+    login = client.post("/api/auth/login", json=ADMIN)
+    pending_token = login.json()["pending_token"]
+    response = client.post(
+        "/api/auth/login/verify-mfa", json={"pending_token": pending_token, "code": "000000"}
+    )
+    assert response.status_code == 401
+
+    # a verificação MFA falhou de propósito, sem sessão — completa o
+    # login de verdade (código certo) pra poder ler o log.
+    login2 = client.post("/api/auth/login", json=ADMIN)
+    client.post(
+        "/api/auth/login/verify-mfa",
+        json={"pending_token": login2.json()["pending_token"], "code": totp.totp_now(secret)},
+    )
+    assert "mfa_failed" in _audit_actions(client)
