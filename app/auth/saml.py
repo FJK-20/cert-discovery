@@ -22,9 +22,11 @@ from __future__ import annotations
 
 import re
 import secrets
+import time
 
 from fastapi import Request
 from onelogin.saml2.auth import OneLogin_Saml2_Auth
+from onelogin.saml2.response import OneLogin_Saml2_Response
 from onelogin.saml2.settings import OneLogin_Saml2_Settings
 
 from app.auth.passwords import hash_password
@@ -69,8 +71,71 @@ def _settings_dict(idp: SamlIdpConfig, base_url: str) -> dict:
             "authnRequestsSigned": False,
             "wantAssertionsSigned": True,
             "wantMessagesSigned": False,
+            # Achado numa auditoria de robustez: sem isso (e sem passar
+            # request_id pra process_response), a lib nunca checava
+            # InResponseTo — abria login CSRF (a vítima processa uma
+            # Response endereçada à sessão do atacante) e permitia
+            # reprocessar uma Response capturada. A checagem de
+            # correlação em si mora em SamlRequestStore abaixo — este
+            # flag é defesa em profundidade, reforçando o mesmo
+            # requisito na própria lib.
+            "rejectUnsolicitedResponsesWithInResponseTo": True,
         },
     }
+
+
+class SamlRequestStore:
+    """Nonces de AuthnRequest pendentes — fecha dois achados de uma
+    auditoria de robustez ao mesmo tempo com um mecanismo só:
+
+    1. Login CSRF: sem correlacionar a Response recebida com um
+       AuthnRequest que ESTE processo efetivamente emitiu, uma Response
+       válida endereçada à sessão de outra pessoa (capturada, ou de um
+       fluxo iniciado pelo próprio atacante) podia ser processada como
+       se fosse a autenticação de quem está no navegador.
+    2. Replay: uma Response capturada (rede, log) podia ser reenviada e
+       processada de novo, sempre que ainda estivesse dentro da janela
+       de validade (NotOnOrAfter) — a assinatura continua válida pra
+       sempre, só o InResponseTo é de uso único.
+
+    `consume()` remove o id ao confirmar — um InResponseTo só corresponde
+    a UMA tentativa de login bem-sucedida; reenviar a mesma Response
+    depois não encontra mais o id pendente (já foi consumido na primeira
+    vez), rejeitada exatamente como uma resposta não solicitada."""
+
+    def __init__(self, ttl_seconds: float = 600) -> None:
+        self._ttl = ttl_seconds
+        self._pending: dict[str, float] = {}
+
+    def register(self, request_id: str) -> None:
+        self._evict_expired()
+        self._pending[request_id] = time.time() + self._ttl
+
+    def consume(self, request_id: str | None) -> bool:
+        if not request_id:
+            return False
+        self._evict_expired()
+        return self._pending.pop(request_id, None) is not None
+
+    def _evict_expired(self) -> None:
+        now = time.time()
+        expired = [rid for rid, expires_at in self._pending.items() if expires_at < now]
+        for rid in expired:
+            del self._pending[rid]
+
+
+pending_saml_requests = SamlRequestStore()
+
+
+def peek_in_response_to(auth: OneLogin_Saml2_Auth, raw_saml_response: str) -> str | None:
+    """Lê o InResponseTo direto do envelope da Response, sem validação
+    criptográfica nenhuma ainda — só o suficiente pra decidir se vale a
+    pena continuar processando. Igual ao warning já existente sobre o
+    construtor de `OneLogin_Saml2_Response` fazer parsing de XML na hora:
+    chamado dentro do mesmo try/except em routes_saml.py que já cobre
+    esse caso pra POST malformado."""
+    response = OneLogin_Saml2_Response(auth.get_settings(), raw_saml_response)
+    return response.get_in_response_to()
 
 
 async def _request_data(request: Request, base_url: str) -> dict:

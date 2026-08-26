@@ -91,7 +91,15 @@ async def saml_login(request: Request):
     if config is None:
         raise HTTPException(status_code=400, detail="SSO SAML não configurado.")
     auth = await saml.build_auth(request, config, settings.public_base_url)
-    return RedirectResponse(auth.login())
+    redirect_url = auth.login()
+    # Achado numa auditoria de robustez: registra o AuthnRequest que ESTE
+    # processo efetivamente emitiu — /acs abaixo só aceita uma Response
+    # cujo InResponseTo corresponda a um destes, fechando login CSRF e
+    # replay de uma Response capturada (ver SamlRequestStore).
+    request_id = auth.get_last_request_id()
+    if request_id:
+        saml.pending_saml_requests.register(request_id)
+    return RedirectResponse(redirect_url)
 
 
 @router.post("/acs")
@@ -102,7 +110,20 @@ async def saml_acs(request: Request):
 
     auth = await saml.build_auth(request, config, settings.public_base_url)
     try:
-        auth.process_response()
+        form = await request.form()
+        raw_response = form.get("SAMLResponse")
+        in_response_to = saml.peek_in_response_to(auth, raw_response) if raw_response else None
+        if not saml.pending_saml_requests.consume(in_response_to):
+            # Sem AuthnRequest pendente correspondente: resposta não
+            # solicitada por este processo (login CSRF) ou reenvio de uma
+            # já processada antes (replay) — os dois têm a mesma cura.
+            raise HTTPException(
+                status_code=401,
+                detail="Resposta SAML não corresponde a um login iniciado por esta sessão.",
+            )
+        auth.process_response(request_id=in_response_to)
+    except HTTPException:
+        raise
     except Exception as err:
         # python3-saml faz parsing de XML já no construtor da Response,
         # antes do próprio try/except interno de is_valid() entrar em

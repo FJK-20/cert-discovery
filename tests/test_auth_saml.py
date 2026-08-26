@@ -153,3 +153,57 @@ def test_saml_idp_config_round_trip(tmp_path):
 
     store.save_saml_config(_IDP_CONFIG)
     assert store.load_saml_config() == _IDP_CONFIG
+
+
+# --- SamlRequestStore: fecha login CSRF e replay via correlação de
+# InResponseTo (achado numa auditoria de robustez) ---
+
+
+def test_saml_request_store_consume_removes_pending_id():
+    store = saml.SamlRequestStore()
+    store.register("req-1")
+    assert store.consume("req-1") is True
+    # já consumido — reenviar a mesma Response não encontra mais o id
+    # pendente, rejeitada como se fosse não solicitada (fecha replay).
+    assert store.consume("req-1") is False
+
+
+def test_saml_request_store_rejects_unknown_or_missing_id():
+    store = saml.SamlRequestStore()
+    assert store.consume("nunca-registrado") is False
+    assert store.consume(None) is False
+    assert store.consume("") is False
+
+
+def test_saml_request_store_expires_after_ttl(monkeypatch):
+    store = saml.SamlRequestStore(ttl_seconds=10)
+    fake_now = [1_000_000.0]
+    monkeypatch.setattr(saml.time, "time", lambda: fake_now[0])
+    store.register("req-1")
+    fake_now[0] += 11
+    assert store.consume("req-1") is False
+
+
+def test_peek_in_response_to_reads_attribute_before_any_validation():
+    """get_in_response_to() lê direto do envelope XML, sem checar
+    assinatura/certificado — por isso dá pra correlacionar ANTES de
+    chamar process_response(), inclusive pra uma Response que nunca vai
+    passar na validação de verdade (é exatamente o caso de um ataque)."""
+    import base64
+
+    from onelogin.saml2.settings import OneLogin_Saml2_Settings
+
+    settings_dict = saml._settings_dict(_IDP_CONFIG, "https://certmanager.example.com")
+    ol_settings = OneLogin_Saml2_Settings(settings=settings_dict, sp_validation_only=True)
+    xml = (
+        '<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" '
+        'ID="_resp1" InResponseTo="_req123" Version="2.0" '
+        'IssueInstant="2024-01-01T00:00:00Z"></samlp:Response>'
+    )
+    raw = base64.b64encode(xml.encode()).decode()
+
+    class _FakeAuth:
+        def get_settings(self):
+            return ol_settings
+
+    assert saml.peek_in_response_to(_FakeAuth(), raw) == "_req123"

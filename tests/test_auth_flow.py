@@ -16,7 +16,7 @@ import time
 from fastapi.testclient import TestClient
 
 from app.audit.log import audit_log
-from app.auth import totp
+from app.auth import saml, totp
 from app.auth.api_keys import api_key_store
 from app.auth.sessions import TokenStore
 from app.auth.store import UserStore
@@ -61,6 +61,10 @@ def _client(tmp_path, monkeypatch) -> TestClient:
     monkeypatch.setattr("app.auth.routes_auth.user_store", UserStore(tmp_path))
     monkeypatch.setattr("app.auth.dependencies.user_store", UserStore(tmp_path))
     monkeypatch.setattr("app.auth.routes_saml.user_store", UserStore(tmp_path))
+    # SamlRequestStore (correlação de InResponseTo) é um singleton de
+    # módulo — sem isolar, um request_id registrado/consumido num teste
+    # vazaria pro próximo dentro do mesmo processo pytest.
+    monkeypatch.setattr(saml, "pending_saml_requests", saml.SamlRequestStore())
     monkeypatch.setattr("app.auth.routes_auth.session_store", session_store)
     monkeypatch.setattr("app.auth.routes_auth.pending_login_store", TokenStore(ttl_seconds=300))
     monkeypatch.setattr("app.auth.routes_auth._rate_limiter", unlimited)
@@ -674,6 +678,67 @@ def test_saml_acs_parses_real_form_post_without_crashing(tmp_path, monkeypatch):
         data={"SAMLResponse": "bm90LWEtcmVhbC1zYW1sLXJlc3BvbnNl"},
     )
     assert response.status_code == 401
+
+
+def _build_fake_saml_response(in_response_to: str) -> str:
+    import base64
+
+    xml = (
+        '<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" '
+        f'ID="_resp1" InResponseTo="{in_response_to}" Version="2.0" '
+        'IssueInstant="2024-01-01T00:00:00Z"></samlp:Response>'
+    )
+    return base64.b64encode(xml.encode()).decode()
+
+
+def _saml_config(client):
+    client.post(
+        "/api/auth/saml/config",
+        json={
+            "entity_id": "https://sts.windows.net/tenant/",
+            "sso_url": "https://login.microsoftonline.com/tenant/saml2",
+            "x509_cert": "FAKE-CERT",
+        },
+    )
+
+
+def test_saml_acs_rejects_response_with_unregistered_in_response_to(tmp_path, monkeypatch):
+    """Achado numa auditoria de robustez: sem correlacionar com um
+    AuthnRequest que este processo emitiu, uma Response válida
+    endereçada a OUTRO login (login CSRF) — ou reenviada depois de já
+    ter sido usada (replay) — era processada como autenticação de quem
+    está no navegador."""
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    _saml_config(client)
+
+    raw = _build_fake_saml_response("_never-registered")
+    response = client.post("/api/auth/saml/acs", data={"SAMLResponse": raw})
+    assert response.status_code == 401
+    assert "não corresponde a um login iniciado" in response.json()["detail"]
+
+
+def test_saml_acs_consumes_registered_request_id_only_once(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    _saml_config(client)
+
+    saml.pending_saml_requests.register("_req-abc")
+    raw = _build_fake_saml_response("_req-abc")
+
+    # passa da checagem de correlação (consome o id), mas ainda falha —
+    # como esperado — na validação de assinatura de verdade (não é uma
+    # Response real assinada por um IdP). O que importa é a MENSAGEM: não
+    # é mais a de correlação, é a de assinatura/estrutura inválida.
+    first = client.post("/api/auth/saml/acs", data={"SAMLResponse": raw})
+    assert first.status_code == 401
+    assert "não corresponde a um login iniciado" not in first.json()["detail"]
+
+    # reenviar a MESMA Response (replay): o id já foi consumido na
+    # primeira tentativa, volta a ser rejeitada como não solicitada.
+    second = client.post("/api/auth/saml/acs", data={"SAMLResponse": raw})
+    assert second.status_code == 401
+    assert "não corresponde a um login iniciado" in second.json()["detail"]
 
 
 def test_saml_metadata_404_when_not_configured(tmp_path, monkeypatch):
