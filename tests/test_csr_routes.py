@@ -36,20 +36,31 @@ def _client(tmp_path, monkeypatch) -> TestClient:
     return client
 
 
-def _sign_csr_pem(csr_pem: str, key) -> str:
+def _sign_csr_pem(
+    csr_pem: str, domain: str = "app.example.com", *, expired: bool = False
+) -> str:
+    """Assina com uma chave/nome de CA separados do CSR (nunca a própria
+    chave do assinante) — um certificado autoassinado não passa mais na
+    validação de app/pki/csr.py (validate_completed_certificate), então o
+    fixture precisa simular uma CA de verdade, distinta do requisitante,
+    pra continuar testando o caminho feliz de completar um CSR."""
     csr = x509.load_pem_x509_csr(csr_pem.encode())
+    ca_key = pki_keys.generate_private_key()
+    ca_name = x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, "Test CA")])
+    not_before = datetime.now(UTC) - (timedelta(days=100) if expired else timedelta())
+    not_after = datetime.now(UTC) - timedelta(days=1) if expired else (
+        datetime.now(UTC) + timedelta(days=90)
+    )
     cert = (
         x509.CertificateBuilder()
         .subject_name(csr.subject)
-        .issuer_name(csr.subject)
+        .issuer_name(ca_name)
         .public_key(csr.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.now(UTC))
-        .not_valid_after(datetime.now(UTC) + timedelta(days=90))
-        .add_extension(
-            x509.SubjectAlternativeName([x509.DNSName("app.example.com")]), critical=False
-        )
-        .sign(key, hashes.SHA256())
+        .not_valid_before(not_before)
+        .not_valid_after(not_after)
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName(domain)]), critical=False)
+        .sign(ca_key, hashes.SHA256())
     )
     return cert.public_bytes(serialization.Encoding.PEM).decode()
 
@@ -68,13 +79,13 @@ def test_create_download_complete_csr_round_trip(tmp_path, monkeypatch):
     assert "BEGIN CERTIFICATE REQUEST" in download.text
 
     # completar exige que o certificado bata com a chave que o app gerou
-    # pro CSR (certificate_matches_key) — assina o cert de teste com essa
-    # mesma chave, lida direto do CSR pendente.
+    # pro CSR (certificate_matches_key) — assina o cert de teste sobre a
+    # chave pública do CSR pendente, mas com uma CA separada (ver
+    # _sign_csr_pem).
     from app.pki.store import pending_csr_store
 
     pending = pending_csr_store.load(csr_id)
-    real_key = serialization.load_pem_private_key(pending.private_key_pem.encode(), password=None)
-    cert_pem = _sign_csr_pem(pending.csr_pem, real_key)
+    cert_pem = _sign_csr_pem(pending.csr_pem)
 
     completed = client.post(
         f"/api/csr/{csr_id}/complete",
@@ -113,6 +124,78 @@ def test_complete_csr_rejects_mismatched_certificate(tmp_path, monkeypatch):
 
     response = client.post(f"/api/csr/{csr_id}/complete", json={"certificate_pem": cert_pem})
     assert response.status_code == 400
+
+
+def test_complete_csr_rejects_self_signed_certificate(tmp_path, monkeypatch):
+    """Achado numa auditoria de robustez: só a chave bater era checado —
+    um certificado autoassinado (issuer == subject) não é resposta de
+    CA nenhuma, mas passava como se fosse uma emissão válida."""
+    client = _client(tmp_path, monkeypatch)
+    created = client.post("/api/csr", json={"domains": ["app.example.com"]})
+    csr_id = created.json()["id"]
+
+    from app.pki.store import pending_csr_store
+
+    pending = pending_csr_store.load(csr_id)
+    real_key = serialization.load_pem_private_key(pending.private_key_pem.encode(), password=None)
+    csr = x509.load_pem_x509_csr(pending.csr_pem.encode())
+    self_signed = (
+        x509.CertificateBuilder()
+        .subject_name(csr.subject)
+        .issuer_name(csr.subject)
+        .public_key(csr.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(UTC))
+        .not_valid_after(datetime.now(UTC) + timedelta(days=90))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.DNSName("app.example.com")]), critical=False
+        )
+        .sign(real_key, hashes.SHA256())
+    )
+    cert_pem = self_signed.public_bytes(serialization.Encoding.PEM).decode()
+
+    response = client.post(f"/api/csr/{csr_id}/complete", json={"certificate_pem": cert_pem})
+    assert response.status_code == 400
+    assert "autoassinado" in response.json()["detail"]
+
+
+def test_complete_csr_rejects_expired_certificate(tmp_path, monkeypatch):
+    """Achado numa auditoria de robustez: not_after nunca era checado —
+    um certificado já vencido (autoassinado de teste, ou legítimo mas
+    velho) entrava no inventário como se fosse uma emissão fresca,
+    reportando postura de segurança falsa."""
+    client = _client(tmp_path, monkeypatch)
+    created = client.post("/api/csr", json={"domains": ["app.example.com"]})
+    csr_id = created.json()["id"]
+
+    from app.pki.store import pending_csr_store
+
+    pending = pending_csr_store.load(csr_id)
+    cert_pem = _sign_csr_pem(pending.csr_pem, expired=True)
+
+    response = client.post(f"/api/csr/{csr_id}/complete", json={"certificate_pem": cert_pem})
+    assert response.status_code == 400
+    assert "expirado" in response.json()["detail"]
+
+
+def test_complete_csr_rejects_certificate_for_a_different_domain(tmp_path, monkeypatch):
+    """Achado numa auditoria de robustez: o domínio gravado vinha do
+    certificado colado, não do CSR original — nada impedia completar um
+    CSR de app.example.com com um certificado (chave batendo por
+    coincidência de reuso, ou por engano) de um domínio completamente
+    diferente."""
+    client = _client(tmp_path, monkeypatch)
+    created = client.post("/api/csr", json={"domains": ["app.example.com"]})
+    csr_id = created.json()["id"]
+
+    from app.pki.store import pending_csr_store
+
+    pending = pending_csr_store.load(csr_id)
+    cert_pem = _sign_csr_pem(pending.csr_pem, domain="outro-dominio.com.br")
+
+    response = client.post(f"/api/csr/{csr_id}/complete", json={"certificate_pem": cert_pem})
+    assert response.status_code == 400
+    assert "não cobre todos os domínios pedidos" in response.json()["detail"]
 
 
 def test_discard_csr(tmp_path, monkeypatch):

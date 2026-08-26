@@ -135,6 +135,16 @@ async def complete_csr(
             "— confirme que colou o certificado certo.",
         )
 
+    # Achado numa auditoria de robustez: bater a chave só prova que o
+    # certificado responde a ESTE par de chaves — não que ainda é válido
+    # nem que cobre o domínio pedido. Sem isso, um certificado
+    # autoassinado expirado colado por engano entrava no inventário como
+    # se fosse uma emissão de CA válida e fresca.
+    try:
+        pki_csr.validate_completed_certificate(cert_pem, pending.domains)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     domains, not_after = pki_csr.certificate_info(cert_pem)
     cert = IssuedCertificate(
         id=csr_id,

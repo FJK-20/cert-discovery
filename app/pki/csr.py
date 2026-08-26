@@ -6,7 +6,7 @@ pelo usuário pra submeter à CA escolhida."""
 
 from __future__ import annotations
 
-from datetime import UTC
+from datetime import UTC, datetime
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -60,3 +60,37 @@ def certificate_info(cert_pem: str) -> tuple[list[str], str | None]:
     if not_after and not_after.tzinfo is None:
         not_after = not_after.replace(tzinfo=UTC)
     return domains, not_after.isoformat() if not_after else None
+
+
+def validate_completed_certificate(cert_pem: str, requested_domains: list[str]) -> None:
+    """Levanta `ValueError` (mensagem pronta pra virar 400 na rota) se o
+    certificado colado não é uma resposta válida ao CSR original — achado
+    numa auditoria de robustez: a única checagem antes disso era a chave
+    pública bater com a privada gerada, o que não garante nem validade
+    nem que o certificado cobre o domínio pedido. Não valida a cadeia
+    contra um trust store de propósito: a CA pode ser interna/privada,
+    sem raiz pública nenhuma (é o caso de uso central deste fluxo) — só o
+    que dá pra checar sem isso: não expirado, não autoassinado (não é
+    resposta de CA nenhuma), e as SANs cobrindo todo domínio pedido."""
+    cert = x509.load_pem_x509_certificate(cert_pem.encode())
+
+    not_after = cert.not_valid_after_utc if hasattr(cert, "not_valid_after_utc") else None
+    if not_after and not_after.tzinfo is None:
+        not_after = not_after.replace(tzinfo=UTC)
+    if not_after and not_after < datetime.now(UTC):
+        raise ValueError(f"certificado já expirado em {not_after.isoformat()}")
+
+    if cert.issuer == cert.subject:
+        raise ValueError(
+            "certificado autoassinado não é uma resposta válida de uma CA — "
+            "confirme que colou o certificado assinado pela CA, não um rascunho"
+        )
+
+    domains, _ = certificate_info(cert_pem)
+    requested = {d.lower() for d in requested_domains}
+    actual = {d.lower() for d in domains}
+    if not requested.issubset(actual):
+        faltando = ", ".join(sorted(requested - actual))
+        raise ValueError(
+            f"o certificado não cobre todos os domínios pedidos no CSR (faltando: {faltando})"
+        )
