@@ -46,3 +46,17 @@ def test_hsts_present_when_behind_https():
     client = TestClient(_app(hsts_enabled=True))
     response = client.get("/ping")
     assert "max-age=31536000" in response.headers["Strict-Transport-Security"]
+
+
+def test_hsts_present_for_https_request_even_without_global_flag():
+    # Achado numa auditoria de robustez: HSTS estava amarrado só à flag
+    # global (CERTDISC_COOKIE_SECURE) — numa instância que serve LAN por
+    # HTTP puro e domínio público por HTTPS via proxy/túnel ao mesmo tempo
+    # (caso real da produção deste projeto), ligar a flag globalmente
+    # quebraria a LAN, então ela ficava desligada e o domínio público
+    # também nunca recebia HSTS. Decisão por requisição via
+    # X-Forwarded-Proto (mesmo padrão de cookie_should_be_secure) fecha
+    # isso sem precisar da flag global.
+    client = TestClient(_app(hsts_enabled=False))
+    response = client.get("/ping", headers={"X-Forwarded-Proto": "https"})
+    assert "max-age=31536000" in response.headers["Strict-Transport-Security"]

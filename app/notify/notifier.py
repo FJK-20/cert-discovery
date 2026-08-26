@@ -8,11 +8,14 @@ que falha não pode derrubar o fluxo de renovação que a disparou."""
 from __future__ import annotations
 
 import smtplib
+import socket
 import ssl
 from email.mime.text import MIMEText
+from urllib.parse import urlparse
 
 import httpx
 
+from app.core.security import is_public_ip
 from app.notify.store import NotificationConfig
 
 
@@ -21,10 +24,47 @@ class NotificationError(Exception):
     internamente por `notify()`, nunca escapa pro chamador."""
 
 
+def _reject_non_public_webhook(url: str) -> None:
+    """Achado numa auditoria de robustez: `is_public_ip()` (app/core/
+    security.py) já existe e é usado pelo scanner justamente pra evitar
+    SSRF, mas não era aplicado aqui — um admin (ou uma sessão
+    comprometida) podia apontar o webhook pra 169.254.169.254 ou qualquer
+    IP interno, e cada falha de renovação virava um POST na rede local.
+
+    Resolução feita aqui (bloqueante, tolerável: webhook é best-effort,
+    baixo volume, nunca no caminho de uma requisição HTTP quente) em vez
+    de reaproveitar o resolver assíncrono do scanner — trade-off
+    documentado, não escondido: como o `httpx.post()` abaixo resolve o
+    host de novo por conta própria, existe uma janela estreita de DNS
+    rebinding entre esta checagem e a conexão real. Pinar a conexão no IP
+    já validado (como app/discovery/tls_probe.py faz) fecharia isso de
+    vez, mas exigiria um transport HTTP customizado — desproporcional
+    pra um webhook configurado só por admin, não pelo scanner."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise NotificationError("URL de webhook precisa ser http:// ou https://.")
+    hostname = parsed.hostname
+    if not hostname:
+        raise NotificationError("URL de webhook inválida.")
+    try:
+        addrinfo = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as exc:
+        raise NotificationError(f"Não foi possível resolver o host do webhook: {exc}") from exc
+    ips = {info[4][0] for info in addrinfo}
+    if not ips or not all(is_public_ip(ip) for ip in ips):
+        raise NotificationError(
+            "URL de webhook aponta pra um endereço não público — bloqueado (proteção SSRF)."
+        )
+
+
 def send_webhook(webhook_url: str, subject: str, message: str) -> None:
+    _reject_non_public_webhook(webhook_url)
     try:
         response = httpx.post(
-            webhook_url, json={"subject": subject, "message": message}, timeout=10.0
+            webhook_url,
+            json={"subject": subject, "message": message},
+            timeout=10.0,
+            follow_redirects=False,
         )
         response.raise_for_status()
     except httpx.HTTPError as exc:

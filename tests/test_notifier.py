@@ -5,6 +5,7 @@ da suíte automatizada, mesmo padrão do resto do projeto)."""
 from __future__ import annotations
 
 import smtplib
+import socket
 import ssl
 
 import httpx
@@ -14,6 +15,23 @@ from app.notify import notifier
 from app.notify.store import NotificationConfig
 
 
+def _fake_addrinfo(ip: str):
+    def _resolve(host, port):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 0))]
+
+    return _resolve
+
+
+@pytest.fixture(autouse=True)
+def _mock_webhook_dns(monkeypatch):
+    # Toda URL de webhook usada nos testes deste arquivo resolve (mockado,
+    # sem rede real) pra um IP público — a proteção de SSRF em
+    # _reject_non_public_webhook() faria uma resolução de DNS de verdade
+    # sem isso. Testes que precisam do caminho de rejeição sobrescrevem
+    # este mock com um IP privado dentro do próprio teste.
+    monkeypatch.setattr(notifier.socket, "getaddrinfo", _fake_addrinfo("93.184.216.34"))
+
+
 def test_notify_returns_empty_list_without_config():
     assert notifier.notify("assunto", "mensagem", None) == []
 
@@ -21,7 +39,7 @@ def test_notify_returns_empty_list_without_config():
 def test_notify_sends_webhook_when_configured(monkeypatch):
     calls = []
 
-    def fake_post(url, json, timeout):
+    def fake_post(url, json, timeout, follow_redirects=False):
         calls.append((url, json))
 
         class _Resp:
@@ -38,7 +56,7 @@ def test_notify_sends_webhook_when_configured(monkeypatch):
 
 
 def test_notify_webhook_failure_does_not_raise(monkeypatch):
-    def fake_post(url, json, timeout):
+    def fake_post(url, json, timeout, follow_redirects=False):
         raise httpx.ConnectError("boom")
 
     monkeypatch.setattr(httpx, "post", fake_post)
@@ -94,6 +112,31 @@ def test_notify_sends_email_when_configured(monkeypatch):
     assert ("sent", "assunto", "alerts@example.com", "admin@example.com") in sent_messages
 
 
+def test_webhook_pointing_to_private_ip_is_rejected(monkeypatch):
+    """Achado numa auditoria de robustez: is_public_ip() (já usado pelo
+    scanner) não era aplicado ao webhook de notificação — um admin (ou
+    sessão comprometida) podia apontar pra 169.254.169.254 ou qualquer IP
+    interno, e cada falha de renovação virava um POST na rede local."""
+    monkeypatch.setattr(notifier.socket, "getaddrinfo", _fake_addrinfo("169.254.169.254"))
+    posted = []
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: posted.append(a) or object())
+
+    config = NotificationConfig(webhook_url="http://metadata.internal/hook")
+    sent = notifier.notify("assunto", "mensagem", config)
+
+    assert sent == []
+    assert posted == [], "não pode nem tentar conectar — bloqueado antes da requisição"
+
+
+def test_webhook_with_non_http_scheme_is_rejected(monkeypatch):
+    posted = []
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: posted.append(a) or object())
+    config = NotificationConfig(webhook_url="file:///etc/passwd")
+    sent = notifier.notify("assunto", "mensagem", config)
+    assert sent == []
+    assert posted == []
+
+
 def test_notify_email_failure_does_not_raise(monkeypatch):
     class _FailingSMTP:
         def __init__(self, host, port, timeout):
@@ -108,7 +151,7 @@ def test_notify_email_failure_does_not_raise(monkeypatch):
 
 
 def test_notify_tries_both_channels_independently(monkeypatch):
-    def failing_post(url, json, timeout):
+    def failing_post(url, json, timeout, follow_redirects=False):
         raise httpx.ConnectError("x")
 
     monkeypatch.setattr(httpx, "post", failing_post)

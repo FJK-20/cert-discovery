@@ -12,6 +12,12 @@ services:
       # nada deixar comentado até precisar.
       # - "53:53/udp"
       # - "53:53/tcp"
+    # O container roda como usuário não-root (uid 1000, ver Dockerfile) —
+    # porta 53 é privilegiada (<1024), então ligar CERTDISC_SELFDNS_ENABLED
+    # também exige a capability abaixo (sem ela, o bind falha com
+    # "Permission denied"):
+    # cap_add:
+    #   - NET_BIND_SERVICE
     environment:
       - CERTDISC_MAX_HOSTS=400
       - CERTDISC_MAX_CONCURRENCY=30
