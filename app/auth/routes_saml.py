@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from app.audit.log import audit_log
 from app.auth import saml
-from app.auth.dependencies import SESSION_COOKIE_NAME, require_admin
+from app.auth.dependencies import SESSION_COOKIE_NAME, cookie_should_be_secure, require_admin
 from app.auth.sessions import session_store
 from app.auth.store import SamlIdpConfig, user_store
 from app.core.config import settings
@@ -30,14 +30,14 @@ class SamlConfigRequest(BaseModel):
     x509_cert: str = Field(..., min_length=1, max_length=10_000)
 
 
-def _set_session_cookie(response: Response, token: str) -> None:
+def _set_session_cookie(response: Response, token: str, request: Request) -> None:
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=token,
         max_age=int(settings.session_ttl_seconds),
         httponly=True,
         samesite="lax",
-        secure=settings.cookie_secure,
+        secure=cookie_should_be_secure(request),
         path="/",
     )
 
@@ -140,5 +140,5 @@ async def saml_acs(request: Request):
     audit_log.record(username=account.username, action="saml_login", detail=email)
     token = session_store.issue(account.username)
     response = RedirectResponse(url="/", status_code=303)
-    _set_session_cookie(response, token)
+    _set_session_cookie(response, token, request)
     return response

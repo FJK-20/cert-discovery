@@ -563,7 +563,7 @@ fica salvo) — perdeu, revoga e gera outra.
 | `CERTDISC_MAX_CONCURRENCY`             | `30`   | Handshakes TLS simultâneos                            |
 | `CERTDISC_RATE_LIMIT_RPM`              | `6`    | Limite de scans por minuto, por IP do requisitante    |
 | `CERTDISC_DATA_DIR`                    | `data` | Diretório onde usuários/certificados/histórico são persistidos |
-| `CERTDISC_COOKIE_SECURE`               | `false`| Marca o cookie de sessão como `Secure` (ative atrás de HTTPS) |
+| `CERTDISC_COOKIE_SECURE`               | `false`| Força o cookie de sessão como `Secure` sempre (ative se o deploy for só HTTPS). Sem isso, uma requisição individual que chegue por HTTPS — direto ou via `X-Forwarded-Proto: https` de um proxy/túnel — já recebe o cookie `Secure` mesmo assim; a variável só é necessária pra forçar em todas as requisições de uma instância que só serve HTTPS |
 | `CERTDISC_AUTH_RATE_LIMIT`             | `8`    | Limite de tentativas de login/MFA a cada 5 min, por IP |
 | `CERTDISC_SCHEDULER_INTERVAL_SECONDS`  | `21600` (6h) | Intervalo do verificador de renovação automática |
 | `CERTDISC_MASTER_KEY`                  | (gerada automaticamente) | Chave mestra de criptografia em repouso — defina em produção, senão é gerada e persistida em `data/master.key` |

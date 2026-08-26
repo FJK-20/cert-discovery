@@ -29,6 +29,7 @@ from app.auth import qr, totp
 from app.auth.api_keys import api_key_store
 from app.auth.dependencies import (
     SESSION_COOKIE_NAME,
+    cookie_should_be_secure,
     get_authenticated_username,
     require_admin,
     require_auditor,
@@ -111,14 +112,14 @@ def _compute_state(request: Request) -> str:
     return "needs_login"
 
 
-def _set_session_cookie(response: Response, token: str) -> None:
+def _set_session_cookie(response: Response, token: str, request: Request) -> None:
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=token,
         max_age=int(settings.session_ttl_seconds),
         httponly=True,
         samesite="lax",
-        secure=settings.cookie_secure,
+        secure=cookie_should_be_secure(request),
         path="/",
     )
 
@@ -165,7 +166,7 @@ async def setup(payload: SetupRequest, request: Request, response: Response) -> 
     user_store.save(account)
     audit_log.record(username=account.username, action="user_setup", detail="primeiro admin")
     token = session_store.issue(account.username)
-    _set_session_cookie(response, token)
+    _set_session_cookie(response, token, request)
     return {"ok": True}
 
 
@@ -196,7 +197,7 @@ async def login(payload: LoginRequest, request: Request, response: Response) -> 
 
     if not account.mfa_enabled:
         token = session_store.issue(account.username)
-        _set_session_cookie(response, token)
+        _set_session_cookie(response, token, request)
         return {"mfa_required": False}
 
     pending_token = pending_login_store.issue(account.username)
@@ -223,7 +224,7 @@ async def login_verify_mfa(payload: LoginMfaRequest, request: Request, response:
 
     pending_login_store.revoke(payload.pending_token)
     token = session_store.issue(username)
-    _set_session_cookie(response, token)
+    _set_session_cookie(response, token, request)
     return {"ok": True}
 
 

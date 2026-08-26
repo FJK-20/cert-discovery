@@ -1,13 +1,30 @@
 from __future__ import annotations
 
-from fastapi import Cookie, Depends, Header, HTTPException, status
+from fastapi import Cookie, Depends, Header, HTTPException, Request, status
 
 from app.auth.api_keys import api_key_store
 from app.auth.sessions import session_store
 from app.auth.store import ROLE_ADMIN, ROLE_AUDITOR, ROLE_OPERADOR, user_store
+from app.core.config import settings
 
 SESSION_COOKIE_NAME = "certdisc_session"
 _API_KEY_IDENTITY_PREFIX = "apikey:"
+
+
+def cookie_should_be_secure(request: Request) -> bool:
+    """`settings.cookie_secure` é uma decisão de deploy única (liga pra
+    todo cookie ou pra nenhum) — não dá pra ligar globalmente numa
+    instância que também serve HTTP puro na LAN além de HTTPS público
+    (ver README, seção de segurança). Mas se ESTA requisição em particular
+    já chegou por HTTPS — direto, ou atrás de um proxy/túnel que anuncia
+    isso via `X-Forwarded-Proto` (caso do Cloudflare Tunnel) — marcar o
+    cookie como `Secure` só melhora a postura, nunca piora: na pior
+    hipótese o cabeçalho está errado e o navegador rejeita o cookie."""
+    if settings.cookie_secure:
+        return True
+    if request.url.scheme == "https":
+        return True
+    return request.headers.get("x-forwarded-proto", "").lower() == "https"
 
 
 def get_authenticated_username(session_token: str | None) -> str | None:
