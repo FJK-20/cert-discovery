@@ -47,15 +47,12 @@ Compose para rodar (`--workers 1`, obrigatório — job store é em memória).
 - Ao mexer em Docker: rebuildar com `docker compose up -d --build` (static/
   não é volume, precisa build para refletir mudanças).
 - Para logs: sempre `docker compose logs --tail=N`, nunca sem `--tail`.
-- **Deploy público**: além de rodar em `http://192.168.1.50:8000` (LAN), o
-  app também é servido publicamente em `https://certmanager.fausto.app.br`
-  via Cloudflare Tunnel (`cert-discovery-tunnel.service`, systemd, config
-  em `/etc/cloudflared/cert-discovery-config.yml`). Esse hostname é
-  **proxied pela Cloudflare** — depois de qualquer `docker compose up -d
-  --build` que mude `static/`, o público continua vendo a versão antiga
-  (cache de borda, `cache-control: max-age=14400`) até rodar um purge:
-  `POST /zones/{zone_id}/purge_cache` com um token escopado à permissão
-  "Cache Purge" da zona `fausto.app.br` (zone id
-  `bb3fab970841a23ea6593074a8045bb0`). Confirmar com
-  `curl -sD - .../static/style.css | grep cf-cache-status` (deve virar
-  `HIT` com `age` baixo depois do purge, não ficar em `MISS`/`age` alto).
+- **Deploy público**: se esta instância também for servida publicamente
+  atrás de um proxy/CDN com cache de borda (Cloudflare Tunnel ou
+  equivalente), lembrar que `docker compose up -d --build` que mude
+  `static/` não é visto na hora pelo público — o cache de borda continua
+  servindo a versão antiga até expirar ou um purge ser rodado. Detalhes
+  específicos deste deploy (domínio real, IP de LAN, credencial/zone id
+  de CDN) ficam em `CLAUDE.local.md` (gitignored, nunca commitado) — nunca
+  aqui. Esse é o mesmo motivo de nenhum dado real de ambiente ir pro
+  repo: quem clona isto não tem (nem precisa ter) essas informações.

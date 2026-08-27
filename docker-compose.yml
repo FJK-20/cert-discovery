@@ -25,8 +25,11 @@ services:
       - CERTDISC_DATA_DIR=/app/data
       # Entity ID / ACS URL do SSO SAML precisam ser fixos e bater com o
       # que fica cadastrado no IdP — não dá pra derivar da request (varia
-      # entre acesso LAN e túnel público).
-      - CERTDISC_PUBLIC_BASE_URL=https://certmanager.fausto.app.br
+      # entre acesso LAN e túnel público). Troque pelo domínio público
+      # real deste deploy num arquivo .env ao lado deste compose.yml
+      # (gitignored, já suportado nativamente pelo Docker Compose via
+      # interpolação ${VAR} — nunca edite o valor abaixo direto aqui).
+      - CERTDISC_PUBLIC_BASE_URL=${CERTDISC_PUBLIC_BASE_URL:-https://certmanager.example.com}
       # - CERTDISC_SELFDNS_ENABLED=1
       # - CERTDISC_SELFDNS_ZONE=acme.seudominio.com.br
     volumes:

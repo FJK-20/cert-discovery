@@ -9,3 +9,9 @@ venv/
 
 # credenciais do admin (usuário/hash de senha/segredo TOTP) — nunca versionar
 /data/
+
+# Contexto local do Claude Code com detalhes de UM deploy real específico
+# (domínio, IP de LAN, zone id de CDN, caminho de config de systemd) —
+# nunca vai pro repo público, mesma regra de /data/. CLAUDE.md (versionado)
+# fica genérico; isto complementa com o que é específico desta máquina.
+CLAUDE.local.md

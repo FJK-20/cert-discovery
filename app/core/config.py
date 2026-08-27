@@ -40,6 +40,14 @@ class Settings:
     session_ttl_seconds: float = 12 * 3600
     pending_login_ttl_seconds: float = 5 * 60
     cookie_secure: bool = _bool_env("CERTDISC_COOKIE_SECURE", False)
+    # Achado numa auditoria de robustez: o /docs (Swagger UI) e o
+    # /openapi.json do FastAPI ficam públicos por padrão, sem autenticação
+    # — expõem toda a superfície da API (rotas, schemas de request/
+    # response) pra qualquer um na internet, virando um mapa de
+    # reconhecimento de graça. Desligado por padrão; quem quiser docs
+    # interativas (dev local, ou uma instância que decide expor de
+    # propósito) liga explicitamente.
+    enable_api_docs: bool = _bool_env("CERTDISC_ENABLE_API_DOCS", False)
     totp_issuer: str = "Certificate Manager"
     auth_rate_limit_requests: int = _int_env("CERTDISC_AUTH_RATE_LIMIT", 8)
     auth_rate_limit_window_seconds: float = 300.0

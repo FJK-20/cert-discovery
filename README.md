@@ -583,6 +583,7 @@ fica salvo) — perdeu, revoga e gera outra.
 | `CERTDISC_SELFDNS_ENABLED`             | `false` | Liga o servidor DNS autoritativo embutido pro modo "CNAME manual, sem credencial" (ver seção acima) — exige a delegação NS já estar configurada |
 | `CERTDISC_SELFDNS_ZONE`                | (vazio) | Zona que o servidor embutido responde (ex.: `acme.seudominio.com.br`) — obrigatória se `CERTDISC_SELFDNS_ENABLED=1` |
 | `CERTDISC_SELFDNS_PORT`                | `53`   | Porta UDP/TCP do servidor DNS embutido                |
+| `CERTDISC_ENABLE_API_DOCS`             | `false`| Liga `/docs`, `/redoc` e `/openapi.json` (Swagger/OpenAPI). Desligado por padrão: sem autenticação nenhuma, essas rotas expõem toda a superfície da API publicamente |
 
 ## Backup e restauração
 
@@ -746,9 +747,9 @@ específicas):
   cache (assets estáticos, HTML), não tem relação com renovação de
   certificado TLS — um domínio "proxied" pelo Cloudflare nem usa o
   certificado de origem pra servir TLS aos visitantes. A real necessidade
-  de purge (manter `certmanager.fausto.app.br` — o próprio app — com
-  cache atualizado depois de um deploy) é uma questão de infraestrutura
-  de implantação deste ambiente específico, não uma funcionalidade que
+  de purge (manter o próprio domínio público deste deploy com cache
+  atualizado depois de um build) é uma questão de infraestrutura de
+  implantação de cada ambiente específico, não uma funcionalidade que
   faça sentido oferecer aos certificados que o app gerencia.
 - Expansão opcional de wildcards por labels comuns.
 - Suporte a outras fontes de CT log além do crt.sh (redundância).
