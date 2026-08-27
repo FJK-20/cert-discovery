@@ -47,6 +47,16 @@ _rate_limiter = SlidingWindowRateLimiter(
     max_requests=settings.auth_rate_limit_requests,
     window_seconds=settings.auth_rate_limit_window_seconds,
 )
+# Achado numa auditoria de robustez: o limite acima é só por IP da conexão
+# TCP — um deploy atrás de proxy/túnel (o app já prevê isso, ver
+# X-Forwarded-Proto em cookie_should_be_secure) faz todo mundo compartilhar
+# um balde só, e mesmo sem proxy nenhum, um spray de senha distribuído
+# (várias origens, uma conta só) nunca esbarrava em limite nenhum. Balde
+# separado, chaveado pela conta tentada — independente de IP/proxy.
+_account_rate_limiter = SlidingWindowRateLimiter(
+    max_requests=settings.auth_rate_limit_requests,
+    window_seconds=settings.auth_rate_limit_window_seconds,
+)
 _NO_PENDING_ENROLL_MSG = "Nenhuma ativação de MFA em andamento — chame /mfa/enroll primeiro."
 
 
@@ -100,6 +110,15 @@ def _enforce_rate_limit(request: Request) -> None:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Muitas tentativas — aguarde alguns minutos antes de tentar novamente.",
+        )
+
+
+def _enforce_account_rate_limit(username: str) -> None:
+    if not _account_rate_limiter.allow(username.strip().lower()):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Muitas tentativas para esta conta — aguarde alguns minutos antes de "
+            "tentar novamente.",
         )
 
 
@@ -173,6 +192,7 @@ async def setup(payload: SetupRequest, request: Request, response: Response) -> 
 @router.post("/login")
 async def login(payload: LoginRequest, request: Request, response: Response) -> dict:
     _enforce_rate_limit(request)
+    _enforce_account_rate_limit(payload.username)
     if _compute_state(request) != "needs_login":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Não é possível fazer login agora."

@@ -48,6 +48,7 @@ def _client(tmp_path, monkeypatch) -> TestClient:
     monkeypatch.setattr("app.auth.routes_auth.pending_login_store", TokenStore(ttl_seconds=300))
     monkeypatch.setattr("app.auth.dependencies.session_store", session_store)
     monkeypatch.setattr("app.auth.routes_auth._rate_limiter", unlimited)
+    monkeypatch.setattr("app.auth.routes_auth._account_rate_limiter", unlimited)
     store = AcmeStore(tmp_path)
     monkeypatch.setattr("app.api.routes_import.acme_store", store)
     monkeypatch.setattr("app.api.routes_acme.acme_store", store)

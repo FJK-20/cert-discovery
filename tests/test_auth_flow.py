@@ -68,6 +68,7 @@ def _client(tmp_path, monkeypatch) -> TestClient:
     monkeypatch.setattr("app.auth.routes_auth.session_store", session_store)
     monkeypatch.setattr("app.auth.routes_auth.pending_login_store", TokenStore(ttl_seconds=300))
     monkeypatch.setattr("app.auth.routes_auth._rate_limiter", unlimited)
+    monkeypatch.setattr("app.auth.routes_auth._account_rate_limiter", unlimited)
     monkeypatch.setattr("app.auth.dependencies.session_store", session_store)
     monkeypatch.setattr("app.jobs.manager.job_manager.create", _fake_create)
     # `audit_log` é um singleton só, importado por referência em cada
@@ -175,6 +176,51 @@ def test_mfa_endpoints_require_authentication(tmp_path, monkeypatch):
     assert client.get("/api/auth/mfa/status").status_code == 401
     assert client.post("/api/auth/mfa/enroll").status_code == 401
     assert client.post("/api/auth/mfa/disable", json={"password": "x"}).status_code == 401
+
+
+def test_account_rate_limit_is_keyed_by_account_not_shared_globally(tmp_path, monkeypatch):
+    """Achado numa auditoria de robustez: o limite existente era só por
+    IP da conexão TCP — um deploy atrás de proxy/túnel faz todo mundo
+    compartilhar um balde só (ninguém mais loga por 5min depois de 8
+    tentativas de QUALQUER pessoa), e mesmo sem proxy, um spray de senha
+    distribuído (várias origens, uma conta só) nunca esbarrava em limite
+    nenhum. O balde por conta é independente do de IP (que a fixture já
+    deixa ilimitado) — esgotar tentativas contra "admin" não afeta
+    login de "second" alguma."""
+    from app.core.config import settings as real_settings
+    from app.core.ratelimit import SlidingWindowRateLimiter
+
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    client.post(
+        "/api/auth/users",
+        json={"username": "second", "password": "secondpw123", "role": "leitor"},
+    )
+    client.post("/api/auth/logout")
+
+    monkeypatch.setattr(
+        "app.auth.routes_auth._account_rate_limiter",
+        SlidingWindowRateLimiter(
+            max_requests=real_settings.auth_rate_limit_requests,
+            window_seconds=real_settings.auth_rate_limit_window_seconds,
+        ),
+    )
+
+    for _ in range(real_settings.auth_rate_limit_requests):
+        response = client.post(
+            "/api/auth/login", json={"username": "admin", "password": "wrong"}
+        )
+        assert response.status_code == 401
+
+    blocked = client.post("/api/auth/login", json={"username": "admin", "password": "wrong"})
+    assert blocked.status_code == 429
+    assert "conta" in blocked.json()["detail"]
+
+    # conta diferente, balde diferente — o esgotamento acima não vaza.
+    other = client.post(
+        "/api/auth/login", json={"username": "second", "password": "secondpw123"}
+    )
+    assert other.status_code == 200
 
 
 def test_login_flow_requires_password_and_mfa_once_enabled(tmp_path, monkeypatch):
