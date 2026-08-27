@@ -112,6 +112,37 @@ def test_setup_grants_immediate_access_without_mfa(tmp_path, monkeypatch):
     assert client.get("/api/auth/mfa/status").json() == {"enabled": False}
 
 
+def test_login_transparently_upgrades_a_legacy_password_hash(tmp_path, monkeypatch):
+    """Achado numa auditoria de robustez: os parâmetros do scrypt
+    subiram (app/auth/passwords.py) — uma conta criada antes desse fix
+    tem o hash no formato antigo (mais fraco) salvo em disco. Login
+    bem-sucedido precisa recalcular com os parâmetros atuais, sem exigir
+    reset de senha de ninguém."""
+    import hashlib
+
+    from app.auth.passwords import _LEGACY_N
+
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+
+    store = UserStore(tmp_path)
+    account = store.load(ADMIN["username"])
+    legacy_salt = b"\x02" * 16
+    legacy_digest = hashlib.scrypt(
+        ADMIN["password"].encode(), salt=legacy_salt, n=_LEGACY_N, r=8, p=1, dklen=64
+    )
+    account.password_hash = f"{legacy_salt.hex()}${legacy_digest.hex()}"
+    store.save(account)
+
+    client.post("/api/auth/logout")
+    login = client.post("/api/auth/login", json=ADMIN)
+    assert login.status_code == 200
+
+    upgraded = store.load(ADMIN["username"])
+    assert upgraded.password_hash.count("$") == 2, "formato novo embute o n (3 campos)"
+    assert upgraded.password_hash != account.password_hash
+
+
 def test_cannot_register_second_admin(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     client.post("/api/auth/setup", json=ADMIN)

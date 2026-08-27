@@ -35,7 +35,7 @@ from app.auth.dependencies import (
     require_auditor,
     require_session,
 )
-from app.auth.passwords import hash_password, verify_password
+from app.auth.passwords import hash_password, needs_rehash, verify_password
 from app.auth.sessions import pending_login_store, session_store
 from app.auth.store import ROLE_ADMIN, ROLE_LEITOR, ROLES, UserAccount, user_store
 from app.core.config import settings
@@ -223,6 +223,14 @@ async def login(payload: LoginRequest, request: Request, response: Response) -> 
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário ou senha inválidos."
         )
 
+    if needs_rehash(account.password_hash):
+        # Achado numa auditoria de robustez: parâmetros do scrypt subiram
+        # (ver app/auth/passwords.py) — recalcula com os atuais agora que
+        # temos a senha em texto plano em mãos, migração transparente sem
+        # exigir reset de quem já tinha conta.
+        account.password_hash = hash_password(payload.password)
+        user_store.save(account)
+
     if not account.mfa_enabled:
         token = session_store.issue(account.username)
         _set_session_cookie(response, token, request)
@@ -326,6 +334,9 @@ async def mfa_disable(
     assert account is not None
     if not verify_password(payload.password, account.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Senha inválida.")
+
+    if needs_rehash(account.password_hash):
+        account.password_hash = hash_password(payload.password)
 
     account.mfa_enabled = False
     account.totp_secret = ""
