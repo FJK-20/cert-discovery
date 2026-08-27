@@ -118,6 +118,25 @@ def test_user_store_reads_legacy_plaintext_admin(tmp_path):
     assert account.totp_secret == "SEGREDOTOTPANTIGO"
 
 
+def test_user_store_handles_a_user_literally_named_username(tmp_path):
+    """Achado numa auditoria de robustez: a detecção de formato antigo
+    checava só `"username" in raw` — um usuário real chamado literalmente
+    "username" faz essa mesma condição bater no formato ATUAL (multi-
+    usuário), onde `raw["username"]` é um dict de conta, não a string do
+    admin único. Sem distinguir os dois, isso explodia com TypeError
+    (dict não é hasheável) tentando usar o dict como chave — travando
+    load/save pra TODO MUNDO no store, não só essa conta."""
+    store = UserStore(tmp_path)
+    store.save(UserAccount(username="username", password_hash="hash1", role="leitor"))
+    store.save(UserAccount(username="admin", password_hash="hash2", role="admin"))
+
+    loaded = store.load("username")
+    assert loaded is not None
+    assert loaded.role == "leitor"
+    assert store.load("admin").role == "admin"
+    assert {u.username for u in store.list_all()} == {"username", "admin"}
+
+
 def test_looks_like_fernet_token_recognizes_real_tokens(tmp_path):
     box = SecretBox(tmp_path)
     token = box.encrypt("qualquer segredo")

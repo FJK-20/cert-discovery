@@ -97,7 +97,14 @@ class UserStore:
         if not self._path.exists():
             return {}
         raw = json.loads(self._path.read_text())
-        if "username" in raw:
+        # Achado numa auditoria de robustez: `"username" in raw` sozinho
+        # não distingue o formato antigo (objeto plano, `username` é uma
+        # STRING com o nome do único admin) do formato atual com um
+        # usuário literalmente chamado "username" (aí `raw["username"]`
+        # é um DICT de conta) — colidiam na mesma condição, e usar esse
+        # dict como chave (`raw[dict]`) explode com TypeError: unhashable
+        # type, travando load/save pra TODO MUNDO, não só essa conta.
+        if "username" in raw and isinstance(raw["username"], str):
             # Formato antigo (Fase 0-3): um único admin, objeto plano.
             raw = {raw["username"]: raw}
         for entry in raw.values():
