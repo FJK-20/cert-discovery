@@ -209,7 +209,17 @@ async def login(payload: LoginRequest, request: Request, response: Response) -> 
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Esta conta usa login via SSO — use o botão de SSO em vez de usuário/senha.",
         )
-    password_ok = account is not None and verify_password(payload.password, account.password_hash)
+    if account is not None:
+        password_ok = verify_password(payload.password, account.password_hash)
+    else:
+        # Achado numa auditoria de robustez: `and` de curto-circuito
+        # pulava o scrypt inteiro (~40-300ms) quando a conta não existe
+        # — o "and curto-circuita: se a conta não existe, o scrypt nunca
+        # roda" vira um oráculo de timing pra descobrir quais usernames
+        # existem, sem precisar de senha nenhuma. Paga o mesmo custo de
+        # qualquer forma (resultado descartado) só pra igualar o tempo.
+        hash_password(payload.password)
+        password_ok = False
     if account is None or not password_ok:
         # Achado numa auditoria de robustez: login bem-sucedido, falhado,
         # código MFA inválido e logout não deixavam rastro nenhum — um

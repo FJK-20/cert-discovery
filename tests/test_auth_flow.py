@@ -151,6 +151,33 @@ def test_cannot_register_second_admin(tmp_path, monkeypatch):
     assert second.status_code == 400
 
 
+def test_login_pays_the_same_hashing_cost_for_a_nonexistent_account(tmp_path, monkeypatch):
+    """Achado numa auditoria de robustez: `account is not None and
+    verify_password(...)` de curto-circuito pulava o scrypt inteiro
+    quando a conta não existe, virando um oráculo de timing pra
+    descobrir quais usernames existem sem precisar de senha nenhuma.
+    Prova comportamental (não medição de tempo, que seria instável em
+    CI): hash_password() precisa ser chamado mesmo pra uma conta que
+    não existe."""
+    import app.auth.routes_auth as routes_auth_module
+
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/auth/setup", json=ADMIN)
+    client.post("/api/auth/logout")
+
+    calls = []
+    original = routes_auth_module.hash_password
+    monkeypatch.setattr(
+        routes_auth_module, "hash_password", lambda pw: calls.append(pw) or original(pw)
+    )
+
+    response = client.post(
+        "/api/auth/login", json={"username": "nao-existe", "password": "qualquer"}
+    )
+    assert response.status_code == 401
+    assert calls == ["qualquer"]
+
+
 def test_login_single_step_when_mfa_disabled(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     client.post("/api/auth/setup", json=ADMIN)
