@@ -34,12 +34,30 @@ def _record_to_row(record: CertificateRecord) -> dict:
     return row
 
 
+# Achado numa auditoria de robustez: subject_cn, issuer e sans vêm do
+# certificado servido pelo host sondado — e a sonda aceita qualquer
+# certificado por desenho (é o propósito: capturar mesmo um autoassinado/
+# inválido pra reportar depois). Um CN começando com um destes caracteres
+# é interpretado como fórmula por Excel/LibreOffice/Google Sheets ao abrir
+# o CSV exportado (CSV injection) — no computador do analista, não no
+# servidor. Mitigação padrão OWASP: prefixo de aspas simples força
+# interpretação como texto.
+_DANGEROUS_CSV_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _sanitize_csv_cell(value: object) -> object:
+    if isinstance(value, str) and value.startswith(_DANGEROUS_CSV_PREFIXES):
+        return "'" + value
+    return value
+
+
 def to_csv(records: list[CertificateRecord]) -> str:
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=_FIELDS)
     writer.writeheader()
     for record in records:
-        writer.writerow(_record_to_row(record))
+        row = {key: _sanitize_csv_cell(value) for key, value in _record_to_row(record).items()}
+        writer.writerow(row)
     return buffer.getvalue()
 
 

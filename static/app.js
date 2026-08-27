@@ -267,9 +267,14 @@ function renderOverviewCharts() {
 }
 
 function escapeHtml(value) {
+  // Achado numa auditoria de robustez: div.innerHTML sozinho escapa & < >
+  // (o que basta pra contexto de texto entre tags, os únicos usos atuais)
+  // mas não " nem ' — um helper chamado "escapeHtml" que não escapa aspas
+  // vira XSS real no dia em que alguém usar o valor dentro de um atributo
+  // (href=, title=), então escapa também por completude do contrato.
   const div = document.createElement("div");
   div.textContent = value ?? "";
-  return div.innerHTML;
+  return div.innerHTML.replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
 function updateProgress(snapshot) {
