@@ -166,11 +166,29 @@ class AcmeRenewalManager:
             if job.dns_mode in _EVENT_BASED_MODES
             else settings.acme_job_budget_seconds
         )
+        # Achado numa auditoria de robustez: asyncio.wait_for() cancela a
+        # ESPERA, não a thread — asyncio.to_thread() roda num
+        # ThreadPoolExecutor real, e Python não tem como interromper uma
+        # thread à força. Depois de um timeout, a thread continua rodando
+        # sozinha (órfã) e pode concluir a emissão minutos depois, batendo
+        # save_certificate() já com o job marcado "failed" e o scheduler
+        # já tendo reenfileirado — desperdiçando o limite de "duplicate
+        # certificate" da CA (5/semana na Let's Encrypt) numa emissão que
+        # já tinha sido bem-sucedida. `abandoned` é checado por
+        # `_issue_sync` logo depois de salvar o certificado: se a thread
+        # só terminou DEPOIS do timeout, corrige o histórico pra "done"
+        # em vez de deixar "failed" registrado sobre uma emissão que na
+        # verdade funcionou — o certificado, uma vez emitido de verdade,
+        # é reconhecido, nunca descartado (já custou o rate limit da CA).
+        abandoned = threading.Event()
         try:
-            await asyncio.wait_for(asyncio.to_thread(self._issue_sync, job), timeout=budget)
+            await asyncio.wait_for(
+                asyncio.to_thread(self._issue_sync, job, abandoned), timeout=budget
+            )
             job.state = AcmeJobState.DONE
             job.progress_message = "Certificado emitido com sucesso."
         except TimeoutError:
+            abandoned.set()
             job.state = AcmeJobState.FAILED
             job.error = "Tempo esgotado aguardando a emissão do certificado."
         except IssuanceError as exc:
@@ -188,7 +206,7 @@ class AcmeRenewalManager:
                 certificate_id=job.certificate_id,
             )
 
-    def _issue_sync(self, job: AcmeJob) -> None:
+    def _issue_sync(self, job: AcmeJob, abandoned: threading.Event | None = None) -> None:
         if job.dns_mode == DnsMode.CLOUDFLARE:
             result = self._issue_via_cloudflare(job)
         elif job.dns_mode == DnsMode.AZURE_DNS:
@@ -218,6 +236,18 @@ class AcmeRenewalManager:
         )
         self._store.save_certificate(cert)
         job.certificate_id = cert.id
+
+        if abandoned is not None and abandoned.is_set():
+            # `_run()` já desistiu (timeout) e gravou "failed" no
+            # histórico antes desta thread órfã terminar — o certificado
+            # é real e já foi emitido (custou o rate limit da CA), então
+            # é salvo de qualquer forma (linha acima). O que falta é
+            # corrigir o registro: sem isso, o scheduler vê "failed" e
+            # reenfileira uma renovação pra um domínio que acabou de
+            # ganhar um certificado fresco, desperdiçando outra tentativa
+            # contra o mesmo limite.
+            job.state = AcmeJobState.DONE
+            self._history.finish(job.id, state=AcmeJobState.DONE.value, certificate_id=cert.id)
 
     def _directory_url(self, job: AcmeJob) -> str:
         if job.ca == CertificateAuthority.ZEROSSL:
