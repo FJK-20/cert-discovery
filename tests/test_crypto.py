@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import json
 
-from app.acme.store import AcmeStore, DnsCredentials, IssuedCertificate
+import pytest
+
+from app.acme.store import AcmeStore, DecryptionError, DnsCredentials, IssuedCertificate
 from app.auth.store import UserAccount, UserStore
-from app.core.crypto import SecretBox
+from app.core.crypto import SecretBox, looks_like_fernet_token
 from app.notify.store import NotificationConfig, NotificationStore
 from app.pki.store import PendingCsr, PendingCsrStore
 
@@ -114,6 +116,46 @@ def test_user_store_reads_legacy_plaintext_admin(tmp_path):
     account = store.load("admin")
     assert account.role == "admin"
     assert account.totp_secret == "SEGREDOTOTPANTIGO"
+
+
+def test_looks_like_fernet_token_recognizes_real_tokens(tmp_path):
+    box = SecretBox(tmp_path)
+    token = box.encrypt("qualquer segredo")
+    assert looks_like_fernet_token(token) is True
+
+
+def test_looks_like_fernet_token_rejects_plain_text():
+    assert looks_like_fernet_token("cfat_um_token_de_api_qualquer") is False
+    assert looks_like_fernet_token("-----BEGIN PRIVATE KEY-----") is False
+    assert looks_like_fernet_token("JBSWY3DPEHPK3PXP") is False
+    assert looks_like_fernet_token("") is False
+
+
+def test_acme_store_raises_instead_of_leaking_ciphertext_after_key_rotation(tmp_path):
+    """Achado numa auditoria de robustez: antes deste fix, decriptografar
+    com a master key ERRADA (rotação de CERTDISC_MASTER_KEY, ou
+    data/master.key perdido/substituído) devolvia o CIPHERTEXT cru como
+    se fosse o token de API em texto plano — silencioso, sem nenhuma
+    indicação da causa real. Um token de API real (não-Fernet) legado
+    continua sendo aceito como texto plano normalmente (teste
+    test_acme_store_reads_legacy_plaintext_certificate acima)."""
+    store = AcmeStore(tmp_path)
+    store.save_dns_credentials(DnsCredentials(provider="cloudflare", api_token="token-real"))
+
+    # simula rotação de master key: um SecretBox novo, com uma chave
+    # Fernet válida mas DIFERENTE da original, no mesmo diretório de dados.
+    import os
+
+    from cryptography.fernet import Fernet
+
+    (tmp_path / "master.key").unlink()
+    os.environ["CERTDISC_MASTER_KEY"] = Fernet.generate_key().decode()
+    try:
+        rotated_store = AcmeStore(tmp_path)
+        with pytest.raises(DecryptionError, match="master key"):
+            rotated_store.load_dns_credentials()
+    finally:
+        os.environ.pop("CERTDISC_MASTER_KEY", None)
 
 
 def test_pki_csr_private_key_is_encrypted_on_disk(tmp_path):

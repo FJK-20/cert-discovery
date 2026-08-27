@@ -33,7 +33,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from app.core.config import settings
-from app.core.crypto import DecryptionError, SecretBox
+from app.core.crypto import DecryptionError, SecretBox, looks_like_fernet_token
 
 ROLE_ADMIN = "admin"
 ROLE_OPERADOR = "operador"
@@ -117,7 +117,18 @@ class UserStore:
             return value
         try:
             return self._box.decrypt(value)
-        except DecryptionError:
+        except DecryptionError as exc:
+            if looks_like_fernet_token(value):
+                # Achado numa auditoria de robustez: sem essa distinção,
+                # o fallback abaixo devolvia o CIPHERTEXT cru do segredo
+                # TOTP como se fosse o valor em texto plano — silencioso,
+                # sem indicar que a causa real foi CERTDISC_MASTER_KEY
+                # ter mudado ou data/master.key ter sido perdido/trocado.
+                raise DecryptionError(
+                    "Segredo TOTP parece criptografado, mas não decriptografou com a "
+                    "master key atual — CERTDISC_MASTER_KEY mudou, ou data/master.key "
+                    "foi perdido/substituído? Restaure a chave original antes de continuar."
+                ) from exc
             return value  # dado legado em texto plano — recriptografado no próximo save()
 
     def _to_account(self, entry: dict) -> UserAccount:

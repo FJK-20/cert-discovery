@@ -19,12 +19,30 @@ antes — não muda nenhuma lógica de negócio, só o que fica gravado."""
 
 from __future__ import annotations
 
+import base64
 import os
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
 DecryptionError = InvalidToken
+
+
+def looks_like_fernet_token(value: str) -> bool:
+    """Heurística pra distinguir "dado legado nunca criptografado" de
+    "criptografado com uma master key diferente da atual" — achado numa
+    auditoria de robustez: as duas situações levantam a MESMA
+    DecryptionError do Fernet ao tentar decriptografar, mas só a segunda
+    é perigosa de tratar em silêncio (ver uso em app/acme/store.py e
+    app/auth/store.py). Um token Fernet válido é sempre base64 urlsafe de
+    bytes que começam com o byte de versão 0x80 — extremamente
+    improvável de coincidir por acaso com um token de API real, uma
+    chave PEM ou um segredo TOTP em base32."""
+    try:
+        raw = base64.urlsafe_b64decode(value.encode())
+    except Exception:
+        return False
+    return len(raw) > 0 and raw[0] == 0x80
 
 
 def _load_or_create_key(data_dir: Path) -> bytes:

@@ -22,7 +22,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from app.core.config import settings
-from app.core.crypto import DecryptionError, SecretBox
+from app.core.crypto import DecryptionError, SecretBox, looks_like_fernet_token
 
 
 @dataclass
@@ -112,7 +112,19 @@ def _maybe_decrypt(box: SecretBox, value: str | None) -> str | None:
         return value
     try:
         return box.decrypt(value)
-    except DecryptionError:
+    except DecryptionError as exc:
+        if looks_like_fernet_token(value):
+            # Achado numa auditoria de robustez: sem essa distinção, o
+            # fallback abaixo devolvia o CIPHERTEXT cru como se fosse o
+            # segredo em texto plano (ex.: token de API da Cloudflare
+            # virando Authorization: Bearer <ciphertext>) — silencioso,
+            # sem indicar que a causa real foi CERTDISC_MASTER_KEY ter
+            # mudado ou data/master.key ter sido perdido/trocado.
+            raise DecryptionError(
+                "Dado parece criptografado, mas não decriptografou com a master key "
+                "atual — CERTDISC_MASTER_KEY mudou, ou data/master.key foi perdido/"
+                "substituído? Restaure a chave original antes de continuar."
+            ) from exc
         return value  # dado legado ainda em texto plano — recriptografado no próximo save()
 
 
