@@ -33,6 +33,20 @@ class ProbeError(Exception):
     não como erro fatal do scan inteiro."""
 
 
+class BlockedIpError(ProbeError):
+    """Subclasse específica pro bloqueio de SSRF — achado numa auditoria
+    de robustez: o chamador (app/jobs/manager.py) precisa distinguir
+    "IP não é público, recusado por desenho" de qualquer outra falha de
+    rede (timeout, conexão recusada, handshake falhou), porque só o
+    primeiro caso tem um `ip` que nunca deveria voltar no registro salvo
+    — devolver o IP interno resolvido, mesmo bloqueado, transforma a
+    proteção de SSRF num oráculo de reconhecimento de rede interna."""
+
+    def __init__(self, ip: str) -> None:
+        self.ip = ip
+        super().__init__(f"IP {ip} bloqueado (não é um endereço público válido)")
+
+
 @dataclass
 class ProbeResult:
     subject_cn: str | None
@@ -110,7 +124,7 @@ async def probe_host(
     ip_validator=is_public_ip,
 ) -> ProbeResult:
     if not ip_validator(ip):
-        raise ProbeError(f"IP {ip} bloqueado (não é um endereço público válido)")
+        raise BlockedIpError(ip)
 
     loop = asyncio.get_running_loop()
 

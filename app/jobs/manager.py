@@ -19,7 +19,7 @@ import httpx
 from app.core.config import settings
 from app.discovery import ctlogs, subdomain_wordlist
 from app.discovery.dns_resolver import resolve_ips, to_idna
-from app.discovery.tls_probe import ProbeError, probe_host
+from app.discovery.tls_probe import BlockedIpError, ProbeError, probe_host
 from app.domain.inventory import build_inventory
 from app.domain.models import CertificateRecord, JobState, Origin, ScanJob, Status
 from app.domain.urgency import classify
@@ -168,6 +168,22 @@ class ScanJobManager:
                         connect_timeout=settings.tcp_connect_timeout_seconds,
                         handshake_timeout=settings.tls_handshake_timeout_seconds,
                     )
+                except BlockedIpError as exc:
+                    # Achado numa auditoria de robustez: devolver o IP
+                    # interno bloqueado (mesmo sem nunca ter conectado
+                    # nele) transformava a proteção de SSRF num oráculo
+                    # de reconhecimento — qualquer operador conseguia
+                    # mapear IP privado por trás de um hostname arbitrário
+                    # sem nunca estabelecer conexão nenhuma.
+                    job.records.append(
+                        CertificateRecord(
+                            host=host,
+                            origin=Origin.CT_LOG,
+                            status=Status.CT_ONLY,
+                            note=str(exc),
+                        )
+                    )
+                    return
                 except ProbeError as exc:
                     job.records.append(
                         CertificateRecord(

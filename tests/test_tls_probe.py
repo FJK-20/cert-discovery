@@ -74,7 +74,7 @@ def test_probe_host_captures_live_self_signed_certificate(tmp_path):
 
 
 def test_probe_host_rejects_blocked_ip_without_connecting():
-    from app.discovery.tls_probe import ProbeError
+    from app.discovery.tls_probe import BlockedIpError, ProbeError
 
     async def run():
         try:
@@ -86,6 +86,13 @@ def test_probe_host_rejects_blocked_ip_without_connecting():
             )
         except ProbeError as exc:
             assert "bloqueado" in str(exc)
+            # Achado numa auditoria de robustez: o chamador (jobs/manager.py)
+            # precisa de uma exceção distinguível pra saber que NÃO deve
+            # devolver o IP resolvido no registro salvo — devolver o IP
+            # bloqueado transformava a proteção de SSRF num oráculo de
+            # reconhecimento de rede interna.
+            assert isinstance(exc, BlockedIpError)
+            assert exc.ip == "127.0.0.1"
         else:
             raise AssertionError("esperava ProbeError para IP privado")
 

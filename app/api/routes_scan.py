@@ -93,6 +93,26 @@ async def create_scan(
     if not domain or "/" in domain or " " in domain:
         raise HTTPException(status_code=400, detail="Domínio inválido.")
 
+    # Achado numa auditoria de robustez: manual_hosts não tinha vínculo
+    # nenhum com o domínio pedido — até 400 hosts arbitrários por job,
+    # saindo do IP do servidor. A proteção de SSRF impede a conexão, mas
+    # (antes deste fix) devolvia o IP interno resolvido mesmo assim,
+    # virando um oráculo de reconhecimento de rede interna pra qualquer
+    # host que o operador quisesse sondar.
+    out_of_scope = [
+        h
+        for h in payload.manual_hosts
+        if not (
+            (normalized := h.strip().lower().rstrip(".")) == domain
+            or normalized.endswith(f".{domain}")
+        )
+    ]
+    if out_of_scope:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Hosts fora do domínio {domain}: {', '.join(out_of_scope)}",
+        )
+
     job = await job_manager.create(
         domain, payload.manual_hosts, enumerate_subdomains=payload.enumerate_subdomains
     )

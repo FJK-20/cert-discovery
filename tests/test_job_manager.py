@@ -43,6 +43,29 @@ def _run_job(monkeypatch, tmp_path, **settings_overrides) -> ScanJob:
     return job
 
 
+async def _resolves_to_private_ip(hostname, *, timeout):
+    return ["10.1.2.3"]
+
+
+def test_blocked_ip_is_never_recorded_even_when_probe_is_refused(monkeypatch, tmp_path):
+    """Achado numa auditoria de robustez: um host que resolve pra IP
+    privado tinha a conexão corretamente recusada (proteção de SSRF),
+    mas o registro salvo continha o IP resolvido mesmo assim — um
+    operador conseguia mapear rede interna (qual hostname resolve pra
+    qual IP privado) sem nunca estabelecer conexão nenhuma."""
+    _patch_settings(monkeypatch, max_hosts_per_scan=10, max_concurrent_probes=10)
+    monkeypatch.setattr("app.jobs.manager.ctlogs.fetch_hostnames", _ct_unavailable)
+    monkeypatch.setattr("app.jobs.manager.resolve_ips", _resolves_to_private_ip)
+
+    manager = ScanJobManager(history=ScanHistoryStore(tmp_path))
+    job = ScanJob(domain="example.com")
+    asyncio.run(manager._pipeline(job, ["internal.example.com"]))
+
+    record = next(r for r in job.records if r.host == "internal.example.com")
+    assert record.resolved_ip is None
+    assert "bloqueado" in (record.note or "")
+
+
 def test_pipeline_caps_hosts_after_dedup(monkeypatch, tmp_path):
     _patch_settings(monkeypatch, max_hosts_per_scan=2, max_concurrent_probes=10)
     monkeypatch.setattr("app.jobs.manager.ctlogs.fetch_hostnames", _ct_unavailable)
